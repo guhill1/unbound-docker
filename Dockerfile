@@ -12,9 +12,9 @@ RUN apk add --no-cache \
     make \
     bash \
     libevent-dev \
-    libssl-dev \
-    libnghttp3-dev \
-    libngtcp2-dev
+    openssl-dev \
+    nghttp3-dev \
+    ngtcp2-dev
 
 # 克隆 Unbound 源码并切换到指定版本
 RUN git clone https://github.com/NLnetLabs/unbound.git /build/unbound && \
