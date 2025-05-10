@@ -14,22 +14,22 @@ RUN apk add --no-cache nghttp3-dev || \
     (git clone https://github.com/nghttp2/nghttp3.git && \
      cd nghttp3 && \
      autoreconf -i && \
-     ./configure --prefix=/usr --enable-lib-only && \
+     ./configure --prefix=/usr && \
      make -j$(nproc) && \
      make install && \
      cd .. && rm -rf nghttp3 && \
-     ls -l /usr/lib/pkgconfig/nghttp3.pc || { echo "nghttp3.pc not found"; exit 1; })
+     ls -l /usr/lib/pkgconfig/nghttp3.pc || { echo "nghttp3.pc not found"; find / -name nghttp3.pc; exit 1; })
 
 # 编译 ngtcp2
 RUN apk add --no-cache ngtcp2-dev || \
     (git clone https://github.com/ngtcp2/ngtcp2.git && \
      cd ngtcp2 && \
      autoreconf -i && \
-     ./configure --prefix=/usr --enable-lib-only && \
+     ./configure --prefix=/usr && \
      make -j$(nproc) && \
      make install && \
      cd .. && rm -rf ngtcp2 && \
-     ls -l /usr/lib/pkgconfig/ngtcp2.pc || { echo "ngtcp2.pc not found"; exit 1; })
+     ls -l /usr/lib/pkgconfig/ngtcp2.pc || { echo "ngtcp2.pc not found"; find / -name ngtcp2.pc; exit 1; })
 
 # 设置 pkg-config 路径
 ENV PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig
