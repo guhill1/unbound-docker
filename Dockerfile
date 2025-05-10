@@ -6,28 +6,50 @@ RUN echo "http://dl-cdn.alpinelinux.org/alpine/edge/main" >> /etc/apk/repositori
     echo "http://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories && \
     apk update || { echo "apk update failed"; exit 1; }
 
-# 安装构建所需依赖
-RUN set -x && \
-    apk add --no-cache \
-        git \
-        autoconf \
-        automake \
-        libtool \
-        gcc \
-        g++ \
-        make \
-        bash \
-        libevent-dev \
-        openssl-dev \
-        nghttp3-dev \
-        ngtcp2-dev \
-        flex \
-        bison \
-        expat-dev \
-        shadow \
-        pkgconf && \
-    pkg-config --modversion nghttp3 && \
-    pkg-config --modversion ngtcp2 || { echo "Command failed"; exit 1; }
+# 安装构建工具（用于源码编译）
+RUN apk add --no-cache git autoconf automake libtool gcc g++ make openssl-dev
+
+# 编译 nghttp3（如果包不可用）
+RUN apk add --no-cache nghttp3-dev || \
+    (git clone https://github.com/nghttp2/nghttp3.git && \
+     cd nghttp3 && \
+     autoreconf -i && \
+     ./configure --prefix=/usr && \
+     make -j$(nproc) && \
+     make install && \
+     cd .. && rm -rf nghttp3)
+
+# 编译 ngtcp2（如果包不可用）
+RUN apk add --no-cache ngtcp2-dev || \
+    (git clone https://github.com/ngtcp2/ngtcp2.git && \
+     cd ngtcp2 && \
+     autoreconf -i && \
+     ./configure --prefix=/usr && \
+     make -j$(nproc) && \
+     make install && \
+     cd .. && rm -rf ngtcp2)
+
+# 安装其他依赖
+RUN apk add --no-cache \
+    git \
+    autoconf \
+    automake \
+    libtool \
+    gcc \
+    g++ \
+    make \
+    bash \
+    libevent-dev \
+    openssl-dev \
+    flex \
+    bison \
+    expat-dev \
+    shadow \
+    pkgconf
+
+# 验证 nghttp3 和 ngtcp2
+RUN pkg-config --modversion nghttp3 || { echo "nghttp3 not found"; find / -name nghttp3.pc; exit 1; }
+RUN pkg-config --modversion ngtcp2 || { echo "ngtcp2 not found"; find / -name ngtcp2.pc; exit 1; }
 
 # 克隆 Unbound 源码
 RUN git clone https://github.com/NLnetLabs/unbound.git /build/unbound && \
