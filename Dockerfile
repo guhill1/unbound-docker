@@ -16,16 +16,20 @@ RUN git clone https://github.com/NLnetLabs/unbound.git /build/unbound && \
     cd /build/unbound && \
     git checkout release-1.19.3
 
-# 运行 autogen.sh
-RUN chmod +x /build/unbound/autogen.sh && /build/unbound/autogen.sh
+# 列出文件确认是否有 autogen.sh
+RUN ls -la /build/unbound
 
-# 配置编译选项
-RUN /build/unbound/configure --enable-dns-over-quic \
-      --with-libevent \
-      --with-ssl \
-      --with-libnghttp3 \
-      --with-libngtcp2 \
-      --disable-shared
+# 如果存在 autogen.sh，运行它；否则直接配置
+RUN if [ -f /build/unbound/autogen.sh ]; then \
+        chmod +x /build/unbound/autogen.sh && /build/unbound/autogen.sh; \
+    else \
+        ./configure --enable-dns-over-quic \
+                    --with-libevent \
+                    --with-ssl \
+                    --with-libnghttp3 \
+                    --with-libngtcp2 \
+                    --disable-shared; \
+    fi
 
 # 编译
 RUN make -C /build/unbound -j$(nproc)
