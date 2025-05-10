@@ -1,6 +1,11 @@
 # 使用最新的 Alpine 镜像
 FROM alpine:latest
 
+# 启用边缘仓库
+RUN echo "http://dl-cdn.alpinelinux.org/alpine/edge/main" >> /etc/apk/repositories && \
+    echo "http://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories && \
+    apk update
+
 # 安装构建所需依赖
 RUN apk add --no-cache \
     git \
@@ -17,7 +22,8 @@ RUN apk add --no-cache \
     ngtcp2-dev \
     flex \
     bison \
-    expat-dev
+    expat-dev && \
+    apk list | grep -E 'nghttp3|ngtcp2'
 
 # 克隆 Unbound 源码
 RUN git clone https://github.com/NLnetLabs/unbound.git /build/unbound && \
@@ -38,19 +44,30 @@ RUN ./configure \
         --with-libnghttp3 \
         --with-libngtcp2 \
         --disable-shared && \
+    cat config.log | grep -i quic && \
     make -j$(nproc) && \
-    make install
+    make install && \
+    unbound -V
 
 # 添加 unbound 用户和组
 RUN addgroup -S unbound && adduser -S unbound -G unbound
 
-# 拷贝配置和证书（你需要准备这三个文件）
+# 拷贝配置和证书
 COPY unbound.conf /etc/unbound/unbound.conf
 COPY unbound_server.key /etc/unbound/unbound_server.key
 COPY unbound_server.pem /etc/unbound/unbound_server.pem
 
-# 创建缓存目录并赋予权限
-RUN mkdir -p /var/lib/unbound && chown -R unbound:unbound /var/lib/unbound
+# 设置权限
+RUN chown -R unbound:unbound /etc/unbound /var/lib/unbound && \
+    chmod 640 /etc/unbound/unbound.conf /etc/unbound/unbound_server.key /etc/unbound/unbound_server.pem && \
+    mkdir -p /var/lib/unbound && chown -R unbound:unbound /var/lib/unbound
 
-# 设置默认命令运行 Unbound（使用非守护模式）
-CMD ["unbound", "-d", "-c", "/etc/unbound/unbound.conf"]
+# 以 unbound 用户运行
+USER unbound
+
+# 设置默认命令运行 Unbound（调试模式）
+CMD ["unbound", "-dd", "-c", "/etc/unbound/unbound.conf"]
+
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=3s \
+    CMD unbound-control status || exit 1
