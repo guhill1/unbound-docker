@@ -18,15 +18,32 @@ RUN apt-get update && apt-get install -y \
     libexpat1-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# 编译 nghttp3
-RUN git clone https://github.com/nghttp2/nghttp3.git && \
-    cd nghttp3 && \
-    autoreconf -i && \
-    ./configure --prefix=/usr && \
-    make -j$(nproc) && \
-    make install && \
-    cd .. && rm -rf nghttp3
+# 编译 nghttp3 - 分离步骤
+# 1. 克隆仓库
+RUN git clone https://github.com/nghttp2/nghttp3.git || { echo "git clone nghttp3 failed"; exit 1; }
 
+# 2. 进入目录
+RUN cd nghttp3 || { echo "cd nghttp3 failed"; exit 1; }
+
+# 3. 运行 autoreconf
+RUN cd nghttp3 && autoreconf -i || { echo "autoreconf failed"; exit 1; }
+
+# 4. 运行 configure
+RUN cd nghttp3 && ./configure --prefix=/usr || { echo "configure nghttp3 failed"; exit 1; }
+
+# 5. 编译
+RUN cd nghttp3 && make -j$(nproc) || { echo "make nghttp3 failed"; exit 1; }
+
+# 6. 安装
+RUN cd nghttp3 && make install || { echo "make install nghttp3 failed"; exit 1; }
+
+# 7. 清理
+RUN rm -rf nghttp3 || { echo "cleanup nghttp3 failed"; exit 1; }
+
+# 验证 nghttp3 安装
+RUN pkg-config --modversion nghttp3 || { echo "nghttp3 pkg-config failed"; find / -name nghttp3.pc; exit 1; }
+
+# 后续步骤保持不变（编译 ngtcp2 和 Unbound）
 # 编译 ngtcp2
 RUN git clone https://github.com/ngtcp2/ngtcp2.git && \
     cd ngtcp2 && \
@@ -57,7 +74,7 @@ RUN unbound -V && \
     pkg-config --modversion nghttp3 && \
     pkg-config --modversion ngtcp2
 
-# 第二阶段：使用Alpine构建运行时镜像
+# 第二阶段：使用Alpine构建运行时镜像（保持不变）
 FROM alpine:latest
 
 # 安装运行时依赖
