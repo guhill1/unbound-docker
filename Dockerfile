@@ -22,8 +22,10 @@ RUN apk add --no-cache \
     ngtcp2-dev \
     flex \
     bison \
-    expat-dev && \
-    apk list | grep -E 'nghttp3|ngtcp2'
+    expat-dev \
+    shadow && \
+    pkg-config --modversion nghttp3 && \
+    pkg-config --modversion ngtcp2
 
 # 克隆 Unbound 源码
 RUN git clone https://github.com/NLnetLabs/unbound.git /build/unbound && \
@@ -44,23 +46,29 @@ RUN ./configure \
         --with-libnghttp3 \
         --with-libngtcp2 \
         --disable-shared && \
-    cat config.log | grep -i quic && \
+    grep -i quic config.log && \
     make -j$(nproc) && \
     make install && \
     unbound -V
 
 # 添加 unbound 用户和组
-RUN addgroup -S unbound && adduser -S unbound -G unbound
+RUN addgroup -S unbound && adduser -S unbound -G unbound && \
+    id unbound && getent group unbound
 
 # 拷贝配置和证书
 COPY unbound.conf /etc/unbound/unbound.conf
 COPY unbound_server.key /etc/unbound/unbound_server.key
 COPY unbound_server.pem /etc/unbound/unbound_server.pem
 
-# 设置权限
-RUN chown -R unbound:unbound /etc/unbound /var/lib/unbound && \
-    chmod 640 /etc/unbound/unbound.conf /etc/unbound/unbound_server.key /etc/unbound/unbound_server.pem && \
-    mkdir -p /var/lib/unbound && chown -R unbound:unbound /var/lib/unbound
+# 验证文件并设置权限
+RUN ls -l /etc/unbound/ && \
+    test -f /etc/unbound/unbound.conf && \
+    test -f /etc/unbound/unbound_server.key && \
+    test -f /etc/unbound/unbound_server.pem && \
+    set -x && \
+    mkdir -p /etc/unbound /var/lib/unbound && \
+    chown -R unbound:unbound /etc/unbound /var/lib/unbound && \
+    chmod 640 /etc/unbound/unbound.conf /etc/unbound/unbound_server.key /etc/unbound/unbound_server.pem
 
 # 以 unbound 用户运行
 USER unbound
