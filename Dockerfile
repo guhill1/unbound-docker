@@ -1,7 +1,7 @@
 # 使用最新的 Alpine 镜像
 FROM alpine:latest
 
-# 安装构建所需的依赖，包括 flex 和 bison
+# 安装构建所需的依赖，包括 flex, bison, 和 libexpat-dev
 RUN apk add --no-cache \
     git \
     autoconf \
@@ -16,7 +16,8 @@ RUN apk add --no-cache \
     nghttp3-dev \
     ngtcp2-dev \
     flex \
-    bison
+    bison \
+    expat-dev
 
 # 克隆 Unbound 源码并切换到指定版本
 RUN git clone https://github.com/NLnetLabs/unbound.git /build/unbound && \
