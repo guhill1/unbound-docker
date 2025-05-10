@@ -4,28 +4,30 @@ FROM alpine:latest
 # 启用边缘仓库
 RUN echo "http://dl-cdn.alpinelinux.org/alpine/edge/main" >> /etc/apk/repositories && \
     echo "http://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories && \
-    apk update
+    apk update || { echo "apk update failed"; exit 1; }
 
 # 安装构建所需依赖
-RUN apk add --no-cache \
-    git \
-    autoconf \
-    automake \
-    libtool \
-    gcc \
-    g++ \
-    make \
-    bash \
-    libevent-dev \
-    openssl-dev \
-    nghttp3-dev \
-    ngtcp2-dev \
-    flex \
-    bison \
-    expat-dev \
-    shadow && \
+RUN set -x && \
+    apk add --no-cache \
+        git \
+        autoconf \
+        automake \
+        libtool \
+        gcc \
+        g++ \
+        make \
+        bash \
+        libevent-dev \
+        openssl-dev \
+        nghttp3-dev \
+        ngtcp2-dev \
+        flex \
+        bison \
+        expat-dev \
+        shadow \
+        pkgconf && \
     pkg-config --modversion nghttp3 && \
-    pkg-config --modversion ngtcp2
+    pkg-config --modversion ngtcp2 || { echo "Command failed"; exit 1; }
 
 # 克隆 Unbound 源码
 RUN git clone https://github.com/NLnetLabs/unbound.git /build/unbound && \
@@ -65,7 +67,6 @@ RUN ls -l /etc/unbound/ && \
     test -f /etc/unbound/unbound.conf && \
     test -f /etc/unbound/unbound_server.key && \
     test -f /etc/unbound/unbound_server.pem && \
-    set -x && \
     mkdir -p /etc/unbound /var/lib/unbound && \
     chown -R unbound:unbound /etc/unbound /var/lib/unbound && \
     chmod 640 /etc/unbound/unbound.conf /etc/unbound/unbound_server.key /etc/unbound/unbound_server.pem
