@@ -16,11 +16,19 @@ RUN apt-get update && apt-get install -y \
     flex \
     bison \
     libexpat1-dev \
+    ca-certificates \
+    && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+# 验证 git 安装和网络
+RUN git --version || { echo "git not installed"; exit 1; } && \
+    ping -c 1 github.com || { echo "cannot reach github.com"; exit 1; }
+
 # 编译 nghttp3 - 分离步骤
-# 1. 克隆仓库
-RUN git clone https://github.com/nghttp2/nghttp3.git || { echo "git clone nghttp3 failed"; exit 1; }
+# 1. 克隆仓库（禁用凭据提示）
+RUN git config --global credential.helper '!f() { :; }; f' && \
+    git clone https://github.com/nghttp2/nghttp3.git || \
+    git clone https://gitee.com/mirrors/nghttp3.git nghttp3 || { echo "git clone nghttp3 failed"; exit 1; }
 
 # 2. 进入目录
 RUN cd nghttp3 || { echo "cd nghttp3 failed"; exit 1; }
@@ -29,7 +37,7 @@ RUN cd nghttp3 || { echo "cd nghttp3 failed"; exit 1; }
 RUN cd nghttp3 && autoreconf -i || { echo "autoreconf failed"; exit 1; }
 
 # 4. 运行 configure
-RUN cd nghttp3 && ./configure --prefix=/usr || { echo "configure nghttp3 failed"; exit 1; }
+RUN cd nghttp3 && ./configure --prefix=/usr || { echo "configure nghttp3 failed"; cat config.log; exit 1; }
 
 # 5. 编译
 RUN cd nghttp3 && make -j$(nproc) || { echo "make nghttp3 failed"; exit 1; }
@@ -43,15 +51,19 @@ RUN rm -rf nghttp3 || { echo "cleanup nghttp3 failed"; exit 1; }
 # 验证 nghttp3 安装
 RUN pkg-config --modversion nghttp3 || { echo "nghttp3 pkg-config failed"; find / -name nghttp3.pc; exit 1; }
 
-# 后续步骤保持不变（编译 ngtcp2 和 Unbound）
-# 编译 ngtcp2
-RUN git clone https://github.com/ngtcp2/ngtcp2.git && \
-    cd ngtcp2 && \
-    autoreconf -i && \
-    ./configure --prefix=/usr && \
-    make -j$(nproc) && \
-    make install && \
-    cd .. && rm -rf ngtcp2
+# 编译 ngtcp2（类似分离步骤）
+RUN git config --global credential.helper '!f() { :; }; f' && \
+    git clone https://github.com/ngtcp2/ngtcp2.git || \
+    git clone https://gitee.com/mirrors/ngtcp2.git ngtcp2 || { echo "git clone ngtcp2 failed"; exit 1; }
+RUN cd ngtcp2 || { echo "cd ngtcp2 failed"; exit 1; }
+RUN cd ngtcp2 && autoreconf -i || { echo "autoreconf ngtcp2 failed"; exit 1; }
+RUN cd ngtcp2 && ./configure --prefix=/usr || { echo "configure ngtcp2 failed"; cat config.log; exit 1; }
+RUN cd ngtcp2 && make -j$(nproc) || { echo "make ngtcp2 failed"; exit 1; }
+RUN cd ngtcp2 && make install || { echo "make install ngtcp2 failed"; exit 1; }
+RUN rm -rf ngtcp2 || { echo "cleanup ngtcp2 failed"; exit 1; }
+
+# 验证 ngtcp2 安装
+RUN pkg-config --modversion ngtcp2 || { echo "ngtcp2 pkg-config failed"; find / -name ngtcp2.pc; exit 1; }
 
 # 克隆并编译 Unbound
 RUN git clone https://github.com/NLnetLabs/unbound.git /build/unbound && \
@@ -74,7 +86,7 @@ RUN unbound -V && \
     pkg-config --modversion nghttp3 && \
     pkg-config --modversion ngtcp2
 
-# 第二阶段：使用Alpine构建运行时镜像（保持不变）
+# 第二阶段：使用Alpine构建运行时镜像
 FROM alpine:latest
 
 # 安装运行时依赖
