@@ -1,22 +1,22 @@
 FROM alpine:edge
 
-# 安装编译环境和依赖
+# 安装编译环境和构建工具
 RUN apk add --no-cache \
     build-base \
     git \
     libevent-dev \
     openssl-dev \
+    expat-dev \
     libtool \
     autoconf \
     automake \
-    expat-dev \
-    pkgconfig \
     cmake \
+    pkgconfig \
     nghttp3-dev \
     ngtcp2-dev \
     curl
 
-# 下载并编译 Unbound（支持 DoQ）
+# 克隆并编译 Unbound
 RUN git clone https://github.com/NLnetLabs/unbound.git && \
     cd unbound && \
     git checkout release-1.19.3 && \
@@ -29,13 +29,14 @@ RUN git clone https://github.com/NLnetLabs/unbound.git && \
         --with-libngtcp2 \
         --disable-shared && \
     make -j$(nproc) && \
-    make install
+    make install && \
+    cd .. && rm -rf unbound
 
-# 拷贝配置和证书
+# 添加配置和证书
 COPY unbound.conf /etc/unbound/unbound.conf
 COPY unbound_server.key /etc/unbound/unbound_server.key
 COPY unbound_server.pem /etc/unbound/unbound_server.pem
 
-EXPOSE 5555/udp
+EXPOSE 53/udp
 
 CMD ["unbound", "-d", "-c", "/etc/unbound/unbound.conf"]
