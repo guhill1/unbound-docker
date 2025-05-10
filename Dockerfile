@@ -1,4 +1,3 @@
-# 使用 Ubuntu 基础镜像
 FROM ubuntu:22.04
 
 # 设置非交互式模式，避免在安装过程中等待用户输入
@@ -15,32 +14,26 @@ RUN apt update && apt install -y \
 # 克隆仓库
 RUN git clone https://github.com/NLnetLabs/unbound.git
 
-# 切换到指定版本
+# 切换到指定版本，并列出分支以调试
 WORKDIR /build/unbound
-RUN git checkout release-1.19.3
+RUN git branch -a && git checkout release-1.19.3
 
-# 运行 autogen.sh
+# 继续其他构建步骤
 RUN chmod +x ./autogen.sh && ./autogen.sh
-
-# 配置编译选项
 RUN ./configure --enable-dns-over-quic \
       --with-libevent \
       --with-ssl \
       --with-libnghttp3 \
       --with-libngtcp2 \
       --disable-shared
-
-# 编译
 RUN make -j$(nproc)
-
-# 安装
 RUN make install
 
 # 清理
 WORKDIR /build
 RUN rm -rf unbound
 
-# 添加配置和证书文件
+# 配置和证书文件
 COPY unbound.conf /etc/unbound/unbound.conf
 COPY unbound_server.key /etc/unbound/unbound_server.key
 COPY unbound_server.pem /etc/unbound/unbound_server.pem
