@@ -22,13 +22,12 @@ RUN apt-get update && apt-get install -y \
 
 # 验证 git 安装和网络
 RUN git --version || { echo "git not installed"; exit 1; } && \
-    ping -c 1 github.com || { echo "cannot reach github.com"; exit 1; }
+    curl -s -I https://github.com || { echo "cannot reach github.com"; exit 1; }
 
 # 编译 nghttp3 - 分离步骤
 # 1. 克隆仓库（禁用凭据提示）
 RUN git config --global credential.helper '!f() { :; }; f' && \
-    git clone https://github.com/nghttp2/nghttp3.git || \
-    git clone https://gitee.com/mirrors/nghttp3.git nghttp3 || { echo "git clone nghttp3 failed"; exit 1; }
+    git clone https://github.com/nghttp2/nghttp3.git || { echo "git clone nghttp3 failed"; exit 1; }
 
 # 2. 进入目录
 RUN cd nghttp3 || { echo "cd nghttp3 failed"; exit 1; }
@@ -53,8 +52,7 @@ RUN pkg-config --modversion nghttp3 || { echo "nghttp3 pkg-config failed"; find 
 
 # 编译 ngtcp2（类似分离步骤）
 RUN git config --global credential.helper '!f() { :; }; f' && \
-    git clone https://github.com/ngtcp2/ngtcp2.git || \
-    git clone https://gitee.com/mirrors/ngtcp2.git ngtcp2 || { echo "git clone ngtcp2 failed"; exit 1; }
+    git clone https://github.com/ngtcp2/ngtcp2.git || { echo "git clone ngtcp2 failed"; exit 1; }
 RUN cd ngtcp2 || { echo "cd ngtcp2 failed"; exit 1; }
 RUN cd ngtcp2 && autoreconf -i || { echo "autoreconf ngtcp2 failed"; exit 1; }
 RUN cd ngtcp2 && ./configure --prefix=/usr || { echo "configure ngtcp2 failed"; cat config.log; exit 1; }
@@ -66,8 +64,9 @@ RUN rm -rf ngtcp2 || { echo "cleanup ngtcp2 failed"; exit 1; }
 RUN pkg-config --modversion ngtcp2 || { echo "ngtcp2 pkg-config failed"; find / -name ngtcp2.pc; exit 1; }
 
 # 克隆并编译 Unbound
-RUN git clone https://github.com/NLnetLabs/unbound.git /build/unbound && \
-    cd /build/unbound && \
+RUN git config --global credential.helper '!f() { :; }; f' && \
+    git clone https://github.com/NLnetLabs/unbound.git /build/unbound || { echo "git clone unbound failed"; exit 1; }
+RUN cd /build/unbound && \
     git checkout release-1.19.3 && \
     [ -f ./autogen.sh ] && ./autogen.sh || true && \
     ./configure \
