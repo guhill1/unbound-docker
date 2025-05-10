@@ -1,13 +1,22 @@
-# 使用最新的 Alpine 镜像
-FROM alpine:latest
+# 第一阶段：使用Ubuntu编译 nghttp3、ngtcp2 和 Unbound
+FROM ubuntu:22.04 AS builder
 
-# 启用边缘仓库
-RUN echo "http://dl-cdn.alpinelinux.org/alpine/edge/main" >> /etc/apk/repositories && \
-    echo "http://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories && \
-    apk update || { echo "apk update failed"; exit 1; }
-
-# 安装构建工具
-RUN apk add --no-cache git autoconf automake libtool gcc g++ make pkgconf openssl-dev
+# 安装构建工具和依赖
+RUN apt-get update && apt-get install -y \
+    git \
+    autoconf \
+    automake \
+    libtool \
+    gcc \
+    g++ \
+    make \
+    pkg-config \
+    libssl-dev \
+    libevent-dev \
+    flex \
+    bison \
+    libexpat1-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 # 编译 nghttp3
 RUN git clone https://github.com/nghttp2/nghttp3.git && \
@@ -16,8 +25,7 @@ RUN git clone https://github.com/nghttp2/nghttp3.git && \
     ./configure --prefix=/usr && \
     make -j$(nproc) && \
     make install && \
-    cd .. && rm -rf nghttp3 && \
-    ls -l /usr/lib/pkgconfig/nghttp3.pc || { echo "nghttp3.pc not found"; find / -name nghttp3.pc; exit 1; }
+    cd .. && rm -rf nghttp3
 
 # 编译 ngtcp2
 RUN git clone https://github.com/ngtcp2/ngtcp2.git && \
@@ -26,57 +34,56 @@ RUN git clone https://github.com/ngtcp2/ngtcp2.git && \
     ./configure --prefix=/usr && \
     make -j$(nproc) && \
     make install && \
-    cd .. && rm -rf ngtcp2 && \
-    ls -l /usr/lib/pkgconfig/ngtcp2.pc || { echo "ngtcp2.pc not found"; find / -name ngtcp2.pc; exit 1; }
+    cd .. && rm -rf ngtcp2
 
-# 设置 pkg-config 路径
-ENV PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig:/usr/lib64/pkgconfig
-
-# 安装其他依赖
-RUN apk add --no-cache \
-    git \
-    autoconf \
-    automake \
-    libtool \
-    gcc \
-    g++ \
-    make \
-    bash \
-    libevent-dev \
-    openssl-dev \
-    flex \
-    bison \
-    expat-dev \
-    shadow \
-    pkgconf
-
-# 验证 nghttp3 和 ngtcp2
-RUN pkg-config --modversion nghttp3 || { echo "nghttp3 not found"; find / -name nghttp3.pc; exit 1; }
-RUN pkg-config --modversion ngtcp2 || { echo "ngtcp2 not found"; find / -name ngtcp2.pc; exit 1; }
-
-# 克隆 Unbound 源码
+# 克隆并编译 Unbound
 RUN git clone https://github.com/NLnetLabs/unbound.git /build/unbound && \
     cd /build/unbound && \
-    git checkout release-1.19.3
-
-# 设置工作目录
-WORKDIR /build/unbound
-
-# 如果有 autogen.sh 则运行，否则跳过
-RUN [ -f ./autogen.sh ] && ./autogen.sh || true
-
-# 编译并安装
-RUN ./configure \
+    git checkout release-1.19.3 && \
+    [ -f ./autogen.sh ] && ./autogen.sh || true && \
+    ./configure \
         --enable-dns-over-quic \
         --with-libevent \
         --with-ssl \
         --with-libnghttp3 \
         --with-libngtcp2 \
+        --prefix=/usr \
         --disable-shared && \
-    grep -i quic config.log && \
     make -j$(nproc) && \
-    make install && \
-    unbound -V
+    make install
+
+# 验证编译结果
+RUN unbound -V && \
+    pkg-config --modversion nghttp3 && \
+    pkg-config --modversion ngtcp2
+
+# 第二阶段：使用Alpine构建运行时镜像
+FROM alpine:latest
+
+# 安装运行时依赖
+RUN echo "http://dl-cdn.alpinelinux.org/alpine/edge/main" >> /etc/apk/repositories && \
+    echo "http://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories && \
+    apk update && \
+    apk add --no-cache \
+        libevent \
+        openssl \
+        expat \
+        shadow
+
+# 从第一阶段复制编译好的文件
+COPY --from=builder /usr/lib/libnghttp3.so* /usr/lib/
+COPY --from=builder /usr/lib/libngtcp2.so* /usr/lib/
+COPY --from=builder /usr/lib/libngtcp2_crypto_*.so* /usr/lib/
+COPY --from=builder /usr/sbin/unbound /usr/sbin/
+COPY --from=builder /usr/bin/unbound-control /usr/bin/
+COPY --from=builder /usr/lib/libunbound.so* /usr/lib/
+COPY --from=builder /usr/include/unbound.h /usr/include/
+COPY --from=builder /usr/lib/pkgconfig/libunbound.pc /usr/lib/pkgconfig/
+COPY --from=builder /usr/lib/pkgconfig/nghttp3.pc /usr/lib/pkgconfig/
+COPY --from=builder /usr/lib/pkgconfig/ngtcp2.pc /usr/lib/pkgconfig/
+
+# 设置 pkg-config 路径
+ENV PKG_CONFIG_PATH=/usr/lib/pkgconfig:/usr/share/pkgconfig
 
 # 添加 unbound 用户和组
 RUN addgroup -S unbound && adduser -S unbound -G unbound && \
