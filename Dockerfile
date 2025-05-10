@@ -1,28 +1,34 @@
-FROM ubuntu:22.04
+# 使用最新的 Alpine 镜像
+FROM alpine:latest
 
-# 设置非交互式模式，避免在安装过程中等待用户输入
-ENV DEBIAN_FRONTEND=noninteractive
+# 安装依赖
+RUN apk add --no-cache \
+    git \
+    autoconf \
+    automake \
+    libtool \
+    gcc \
+    g++ \
+    make \
+    bash \
+    libevent-dev \
+    libssl-dev \
+    libnghttp3-dev \
+    libngtcp2-dev
 
-# 更新系统并安装必要的构建工具
-RUN apt update && apt install -y \
-    git build-essential autoconf automake libtool \
-    libevent-dev libssl-dev libexpat1-dev \
-    libnghttp3-dev libngtcp2-dev \
-    ca-certificates curl \
-    && update-ca-certificates
-
-# 克隆仓库并切换到指定分支
+# 克隆 Unbound 源码并切换到指定版本
 RUN git clone https://github.com/NLnetLabs/unbound.git /build/unbound && \
     cd /build/unbound && \
     git checkout release-1.19.3
 
-# 列出文件确认是否有 autogen.sh
-RUN ls -la /build/unbound
+# 确保工作目录正确
+WORKDIR /build/unbound
 
 # 如果存在 autogen.sh，运行它；否则直接配置
 RUN if [ -f /build/unbound/autogen.sh ]; then \
         chmod +x /build/unbound/autogen.sh && /build/unbound/autogen.sh; \
     else \
+        cd /build/unbound && \
         ./configure --enable-dns-over-quic \
                     --with-libevent \
                     --with-ssl \
@@ -31,20 +37,16 @@ RUN if [ -f /build/unbound/autogen.sh ]; then \
                     --disable-shared; \
     fi
 
-# 编译
-RUN make -C /build/unbound -j$(nproc)
+# 编译并安装
+RUN make -j$(nproc) && make install
 
-# 安装
-RUN make -C /build/unbound install
+# 清理构建文件
+RUN cd / && rm -rf /build/unbound
 
-# 清理
-RUN rm -rf /build/unbound
-
-# 添加配置和证书文件
+# 配置 Unbound，复制配置文件和证书
 COPY unbound.conf /etc/unbound/unbound.conf
 COPY unbound_server.key /etc/unbound/unbound_server.key
 COPY unbound_server.pem /etc/unbound/unbound_server.pem
 
-EXPOSE 53/udp
-
+# 设置默认命令运行 Unbound
 CMD ["unbound", "-d", "-c", "/etc/unbound/unbound.conf"]
