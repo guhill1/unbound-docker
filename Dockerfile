@@ -11,29 +11,32 @@ RUN apt update && apt install -y \
     ca-certificates curl \
     && update-ca-certificates
 
-# 克隆仓库
-RUN git clone https://github.com/NLnetLabs/unbound.git
+# 克隆仓库并切换到指定分支
+RUN git clone https://github.com/NLnetLabs/unbound.git /build/unbound && \
+    cd /build/unbound && \
+    git checkout release-1.19.3
 
-# 切换到指定版本，并列出分支以调试
-WORKDIR /build/unbound
-RUN git branch -a && git checkout release-1.19.3
+# 运行 autogen.sh
+RUN chmod +x /build/unbound/autogen.sh && /build/unbound/autogen.sh
 
-# 继续其他构建步骤
-RUN chmod +x ./autogen.sh && ./autogen.sh
-RUN ./configure --enable-dns-over-quic \
+# 配置编译选项
+RUN /build/unbound/configure --enable-dns-over-quic \
       --with-libevent \
       --with-ssl \
       --with-libnghttp3 \
       --with-libngtcp2 \
       --disable-shared
-RUN make -j$(nproc)
-RUN make install
+
+# 编译
+RUN make -C /build/unbound -j$(nproc)
+
+# 安装
+RUN make -C /build/unbound install
 
 # 清理
-WORKDIR /build
-RUN rm -rf unbound
+RUN rm -rf /build/unbound
 
-# 配置和证书文件
+# 添加配置和证书文件
 COPY unbound.conf /etc/unbound/unbound.conf
 COPY unbound_server.key /etc/unbound/unbound_server.key
 COPY unbound_server.pem /etc/unbound/unbound_server.pem
