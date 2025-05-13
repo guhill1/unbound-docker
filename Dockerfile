@@ -13,7 +13,8 @@ RUN apt-get update && apt-get install -y \
     pkg-config \
     libssl-dev \
     libevent-dev \
-    libexpat-dev \ 
+    libexpat-dev \
+    libsodium-dev \
     ca-certificates \
     curl \
     && rm -rf /var/lib/apt/lists/*
@@ -31,7 +32,7 @@ RUN git clone --recursive https://github.com/ngtcp2/nghttp3.git && \
 RUN git clone --recursive https://github.com/ngtcp2/ngtcp2.git && \
     cd ngtcp2 && \
     autoreconf -i && \
-    ./configure --enable-lib-only && \
+    ./configure --enable-lib-only --with-openssl --with-libev --with-nghttp3 && \
     make -j$(nproc) && \
     make install
 
@@ -46,12 +47,14 @@ RUN curl -LO https://nlnetlabs.nl/downloads/unbound/unbound-1.20.0.tar.gz && \
 # ---------- Stage 2: Minimal Runtime ----------
 FROM alpine:3.20
 
-RUN apk add --no-cache libevent openssl
+# 安装运行时所需的依赖
+RUN apk add --no-cache libevent openssl ca-certificates libc6-compat
 
+# 将构建阶段的文件复制到运行时镜像
 COPY --from=builder /usr/local /usr/local
 
-# 添加默认配置文件
-COPY --from=builder /build/unbound-1.20.0/doc/example.conf /etc/unbound/unbound.conf
+# 复制一个自定义的配置文件（推荐修改）
+COPY ./unbound.conf /etc/unbound/unbound.conf
 
-# 默认入口
+# 默认启动命令
 CMD ["unbound", "-d", "-c", "/etc/unbound/unbound.conf"]
