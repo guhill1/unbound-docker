@@ -34,7 +34,8 @@ RUN apt-get update && apt-get install -y \
     wget \
     libuv1-dev \
     linux-headers-generic \
-    libsf-dev \ # 假设存在 libsf-dev 作为依赖，或者你可以手动获取 sfparse 库
+    # 假设存在 libsf-dev 作为依赖，或者你可以手动获取 sfparse 库
+    libsf-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # 克隆并构建 nghttp2
