@@ -1,40 +1,41 @@
-# 使用 Ubuntu 20.04 作为基础镜像
+# 使用官方 Ubuntu 镜像作为基础镜像
 FROM ubuntu:20.04
 
-# 设置环境变量，避免某些交互式提示
+# 设置环境变量避免交互提示
 ENV DEBIAN_FRONTEND=noninteractive
 
-# 更新和安装必要的依赖
+# 安装必要的依赖包
 RUN apt-get update && apt-get install -y \
+    curl \
     build-essential \
     cmake \
-    wget \
     git \
+    wget \
     libssl-dev \
     libevent-dev \
     pkg-config \
     libgeoip-dev \
     python3 \
     python3-pip \
+    libnghttp2-dev \
+    libprotobuf-c-dev \
+    libgmp-dev \
     autoconf \
     automake \
     libtool \
     libcap-dev \
-    curl \
-    ca-certificates \
-    libfstrm-dev \
-    libcap-ng-dev \
-    liblzma-dev \
     libjemalloc-dev \
     libunwind-dev \
     libsodium-dev \
+    lsb-release \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# 升级 CMake 到 3.20 或更高版本
-RUN wget https://cmake.org/files/v3.20/cmake-3.20.2-Linux-x86_64.sh -O /tmp/cmake.sh && \
-    chmod +x /tmp/cmake.sh && \
-    /tmp/cmake.sh --prefix=/usr/local --skip-license && \
-    rm /tmp/cmake.sh
+# 安装 CMake 3.20 或更高版本
+RUN echo "deb https://apt.kitware.com/ubuntu/ $(lsb_release -c | awk '{print $2}') main" | tee /etc/apt/sources.list.d/kitware.list \
+    && curl -fsSL https://apt.kitware.com/keys/kitware-archive.sh | bash \
+    && apt-get update && apt-get install -y cmake \
+    && cmake --version
 
 # 克隆并构建 nghttp3
 RUN echo "Cloning nghttp3 repository..." && \
@@ -43,6 +44,7 @@ RUN echo "Cloning nghttp3 repository..." && \
     git checkout main && \
     echo "Running cmake for nghttp3..." && \
     cmake . -DCMAKE_BUILD_TYPE=Release && \
+    echo "Running make for nghttp3..." && \
     make -j$(nproc) && \
     make install && \
     echo "nghttp3 installation complete"
@@ -54,6 +56,7 @@ RUN echo "Cloning ngtcp2 repository..." && \
     git checkout main && \
     echo "Running cmake for ngtcp2..." && \
     cmake . -DCMAKE_BUILD_TYPE=Release && \
+    echo "Running make for ngtcp2..." && \
     make -j$(nproc) && \
     make install && \
     echo "ngtcp2 installation complete"
@@ -64,21 +67,18 @@ RUN echo "Cloning Unbound repository..." && \
     cd /build/unbound && \
     echo "Running cmake for Unbound..." && \
     cmake . -DCMAKE_BUILD_TYPE=Release && \
+    echo "Running make for Unbound..." && \
     make -j$(nproc) && \
     make install && \
     echo "Unbound installation complete"
 
-# 创建 sfparse 目录并安装
-RUN mkdir -p /usr/include/sfparse && \
-    wget https://raw.githubusercontent.com/ngtcp2/sfparse/main/sfparse.c -O /usr/include/sfparse/sfparse.c && \
-    wget https://raw.githubusercontent.com/ngtcp2/sfparse/main/sfparse.h -O /usr/include/sfparse/sfparse.h
+# 清理临时文件，减少镜像体积
+RUN rm -rf /build && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
-# 配置 Unbound
-RUN mkdir -p /etc/unbound
-# 假设你会根据自己的需求进一步配置 Unbound
+# 设置工作目录
+WORKDIR /etc/unbound
 
-# 清理缓存和临时文件
-RUN rm -rf /build/*
-
-# 设置默认命令（可以根据需要调整）
-CMD ["unbound", "-d"]
+# 最后执行 Unbound 或其他命令（根据需要修改）
+CMD ["unbound"]
