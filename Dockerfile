@@ -27,8 +27,8 @@ RUN git --version || { echo "git not installed"; exit 1; } && \
     curl -s -I https://github.com || { echo "cannot reach github.com"; exit 1; }
 
 # 编译 nghttp2（包含 nghttp3 支持）- 分离步骤
-# 1. 克隆仓库
-RUN git clone https://github.com/nghttp2/nghttp2.git && \
+# 1. 克隆仓库，拉取子模块
+RUN git clone --recursive https://github.com/nghttp2/nghttp2.git && \
     cd nghttp2 && \
     git checkout master && \
     autoreconf -i && \
