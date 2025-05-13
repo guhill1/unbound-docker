@@ -23,7 +23,7 @@ RUN apt-get update && apt-get install -y \
 RUN wget https://www.openssl.org/source/openssl-3.0.8.tar.gz && \
     tar -xvzf openssl-3.0.8.tar.gz && \
     cd openssl-3.0.8 && \
-    ./config --prefix=/usr/local --openssldir=/usr/local/openssl --enable-ec_nistp_64_gcc_128 && \
+    ./config --prefix=/usr/local --openssldir=/usr/local/openssl && \
     make -j$(nproc) && \
     make install
 
