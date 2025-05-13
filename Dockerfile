@@ -17,10 +17,6 @@ RUN apt-get update && apt-get install -y \
     libssl-dev \
     libevent-dev \
     libcap-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# 安装必要的工具和库，确保 nghttp3 构建依赖正确
-RUN apt-get update && apt-get install -y \
     libprotobuf-c-dev \
     protobuf-c-compiler \
     libnghttp2-dev \
@@ -37,9 +33,8 @@ RUN autoreconf -i \
     && make -j$(nproc) \
     && make install
 
-# 设置环境变量，确保编译时能够找到 sfparse 的头文件
-ENV CFLAGS="-I/usr/include/sfparse"
-ENV LDFLAGS="-L/usr/lib"
+# 确保头文件 sfparse/sfparse.h 被安装在正确的目录
+RUN find /usr -name sfparse.h
 
 # 构建 nghttp3
 WORKDIR /build
