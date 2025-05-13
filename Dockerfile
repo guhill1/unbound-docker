@@ -30,6 +30,12 @@ RUN apt-get update && apt-get install -y \
     libsodium-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# 升级 CMake 到 3.20 或更高版本
+RUN wget https://cmake.org/files/v3.20/cmake-3.20.2-Linux-x86_64.sh -O /tmp/cmake.sh && \
+    chmod +x /tmp/cmake.sh && \
+    /tmp/cmake.sh --prefix=/usr/local --skip-license && \
+    rm /tmp/cmake.sh
+
 # 克隆并构建 nghttp3
 RUN echo "Cloning nghttp3 repository..." && \
     git clone --depth 1 https://github.com/ngtcp2/nghttp3.git /build/nghttp3 && \
