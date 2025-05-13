@@ -1,96 +1,84 @@
-# syntax=docker/dockerfile:1
-
-### ===== Stage 1: Build all dependencies =====
-FROM ubuntu:22.04 AS builder
+# Stage 1: Build environment
+FROM ubuntu:24.04 AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
+
 RUN apt update && apt install -y \
     build-essential \
-    autoconf \
-    automake \
-    libtool \
-    pkg-config \
-    libev-dev \
-    libevent-dev \
-    ca-certificates \
     git \
     curl \
-    wget \
+    ca-certificates \
+    pkg-config \
+    libtool \
+    autoconf \
+    automake \
+    libev-dev \
+    libevent-dev \
+    libnghttp2-dev \
+    libunistring-dev \
+    libyaml-dev \
+    libexpat1-dev \
     cmake \
-    python3 \
-    doxygen \
-    bison \
-    flex \
     libssl-dev \
-    zlib1g-dev
+    wget \
+    python3 \
+    python3-pip
 
 WORKDIR /opt
 
-# ---------- Build sfparse ----------
+# Build OpenSSL 3.1+ with QUIC support
+RUN wget https://www.openssl.org/source/openssl-3.1.5.tar.gz && \
+    tar -xf openssl-3.1.5.tar.gz && \
+    cd openssl-3.1.5 && \
+    ./Configure linux-x86_64 enable-tls1_3 enable-quic no-shared --prefix=/usr/local && \
+    make -j$(nproc) && make install_sw
+
+ENV PATH="/usr/local/bin:$PATH"
+ENV LD_LIBRARY_PATH="/usr/local/lib:$LD_LIBRARY_PATH"
+ENV PKG_CONFIG_PATH="/usr/local/lib/pkgconfig:$PKG_CONFIG_PATH"
+
+# Build sfparse
 RUN git clone https://github.com/ngtcp2/sfparse.git && \
     cd sfparse && \
-    autoreconf -i && \
-    ./configure --prefix=/usr/local && \
-    make -j$(nproc) && \
-    make install
+    autoreconf -i && ./configure --prefix=/usr/local && \
+    make -j$(nproc) && make install
 
-# ---------- Build nghttp3 ----------
-RUN git clone --depth=1 https://github.com/ngtcp2/nghttp3.git && \
+# Build nghttp3
+RUN git clone https://github.com/ngtcp2/nghttp3.git && \
     cd nghttp3 && \
     autoreconf -i && \
     ./configure --prefix=/usr/local && \
-    make -j$(nproc) && \
-    make install
+    make -j$(nproc) && make install
 
-# ---------- Build quictls/openssl ----------
-RUN git clone --depth=1 -b openssl-3.0.8+quic https://github.com/quictls/openssl.git && \
-    cd openssl && \
-    ./config --prefix=/usr/local --libdir=lib && \
-    make -j$(nproc) && \
-    make install
-
-# ---------- Build ngtcp2 ----------
-ENV PKG_CONFIG_PATH=/usr/local/lib/pkgconfig
+# Build ngtcp2
 RUN git clone --recursive https://github.com/ngtcp2/ngtcp2.git && \
     cd ngtcp2 && \
     autoreconf -i && \
     ./configure --enable-lib-only \
-        --with-openssl=/usr/local \
-        --with-nghttp3=/usr/local \
-        --with-libev \
+        --with-openssl --with-libev --with-nghttp3 \
         --prefix=/usr/local && \
-    make -j$(nproc) && \
-    make install
+    make -j$(nproc) && make install
 
-# ---------- Build Unbound ----------
-RUN git clone https://github.com/NLnetLabs/unbound.git && \
-    cd unbound && \
-    git checkout release-1.20.0 && \
-    ./autogen.sh && \
-    ./configure --prefix=/opt/unbound \
-        --with-ssl=/usr/local \
-        --with-libevent \
+# Build Unbound with QUIC
+RUN wget https://www.nlnetlabs.nl/downloads/unbound/unbound-1.19.3.tar.gz && \
+    tar -xzf unbound-1.19.3.tar.gz && \
+    cd unbound-1.19.3 && \
+    ./configure --prefix=/usr/local \
         --enable-dnscrypt \
         --enable-dnstap \
         --enable-subnet \
         --enable-tfo-client \
         --enable-tfo-server \
-        --enable-ecdsa \
-        --enable-ed25519 \
-        --enable-ed448 \
-        --enable-quic \
-        PKG_CONFIG_PATH=/usr/local/lib/pkgconfig && \
-    make -j$(nproc) && \
-    make install
+        --with-libevent \
+        --with-ssl=/usr/local \
+        --with-libngtcp2 && \
+    make -j$(nproc) && make install
 
-### ===== Stage 2: Runtime image =====
-FROM debian:bookworm-slim
+# Stage 2: Runtime image
+FROM debian:bullseye-slim AS runtime
 
 RUN apt update && apt install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /opt/unbound /opt/unbound
-COPY --from=builder /usr/local/lib /usr/local/lib
+COPY --from=builder /usr/local /usr/local
 
-ENV PATH="/opt/unbound/sbin:$PATH"
-
-CMD ["unbound", "-d"]
+ENTRYPOINT ["unbound"]
