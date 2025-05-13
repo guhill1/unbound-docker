@@ -22,8 +22,8 @@ RUN git clone https://github.com/ngtcp2/sfparse . \
     # 修复 sfparse.h 路径问题
     && mkdir -p /usr/include/sfparse \
     && cp ./sfparse.h /usr/include/sfparse/sfparse.h \
-    # 确保 sfparse.c 可以找到（不再尝试复制到 /usr/src）
-    && cp ./sfparse.c /usr/src/sfparse.c
+    # 直接将 sfparse.c 复制到 /usr/include/sfparse/
+    && cp ./sfparse.c /usr/include/sfparse/sfparse.c
 
 # --- Build nghttp3 ---
 WORKDIR /build/nghttp3
