@@ -14,9 +14,9 @@ RUN apt-get update && apt-get install -y \
     ca-certificates \
     git \
     curl \
-    libssl-dev \           # 使用 libssl-dev 代替 libssl1.1
-    libevent-dev \          # 使用 libevent-dev 代替 libevent
-    libcap2 \               # 保持 libcap2
+    libssl-dev \       
+    libevent-dev \       
+    libcap2 \               
     bash \
     c-ares-dev \
     libnghttp2-dev \
