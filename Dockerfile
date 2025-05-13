@@ -1,66 +1,60 @@
-# 第一阶段：构建 Unbound
+# 第一阶段：使用 Ubuntu 编译 Unbound
 FROM ubuntu:22.04 AS builder
 
+# 安装依赖
 RUN apt-get update && apt-get install -y \
-    git \
-    autoconf \
-    automake \
-    libtool \
+    curl \
     gcc \
     g++ \
     make \
-    pkg-config \
     libssl-dev \
     libevent-dev \
     libexpat1-dev \
-    ca-certificates \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+    pkg-config \
+    tar \
+    xz-utils \
+    ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
 
-# 拉取源码并编译 Unbound（无 QUIC）
-RUN git clone https://github.com/NLnetLabs/unbound.git /build/unbound
-WORKDIR /build/unbound
-
-RUN git checkout release-1.19.3 && \
-    ./autogen.sh && \
-    ./configure \
-        --with-libevent \
-        --with-ssl \
-        --prefix=/usr && \
+# 下载并解压 Unbound 源码
+WORKDIR /build
+RUN curl -LO https://nlnetlabs.nl/downloads/unbound/unbound-1.19.3.tar.gz && \
+    tar xzf unbound-1.19.3.tar.gz && \
+    cd unbound-1.19.3 && \
+    ./configure --with-libevent --with-ssl --prefix=/usr && \
     make -j$(nproc) && \
     make install
 
-# 第二阶段：构建最小运行镜像
+# 第二阶段：Alpine 精简运行环境
 FROM alpine:latest
 
 # 安装运行时依赖
-RUN apk update && apk add --no-cache \
+RUN apk add --no-cache \
     libevent \
     openssl \
     expat \
     shadow
 
-# 添加运行用户
-RUN addgroup -S unbound && adduser -S unbound -G unbound
-
-# 拷贝构建好的 Unbound
+# 从 builder 中复制编译好的文件
 COPY --from=builder /usr/sbin/unbound /usr/sbin/
 COPY --from=builder /usr/lib/libunbound.so* /usr/lib/
 COPY --from=builder /usr/include/unbound.h /usr/include/
 COPY --from=builder /usr/lib/pkgconfig/libunbound.pc /usr/lib/pkgconfig/
 
-# 拷贝配置与证书
+# 添加 unbound 用户
+RUN addgroup -S unbound && adduser -S unbound -G unbound
+
+# 创建配置目录
+RUN mkdir -p /etc/unbound /var/lib/unbound && \
+    chown -R unbound:unbound /etc/unbound /var/lib/unbound
+
+# 复制配置文件（你需要提供 unbound.conf 文件）
 COPY unbound.conf /etc/unbound/unbound.conf
-COPY unbound_server.key /etc/unbound/unbound_server.key
-COPY unbound_server.pem /etc/unbound/unbound_server.pem
 
 # 设置权限
-RUN mkdir -p /etc/unbound /var/lib/unbound && \
-    chown -R unbound:unbound /etc/unbound /var/lib/unbound && \
-    chmod 640 /etc/unbound/unbound.conf /etc/unbound/unbound_server.* || true
+RUN chmod 640 /etc/unbound/unbound.conf && \
+    chown unbound:unbound /etc/unbound/unbound.conf
 
-# 设置运行用户
+# 设置默认运行命令
 USER unbound
-
-# 启动命令（调试模式）
 CMD ["unbound", "-dd", "-c", "/etc/unbound/unbound.conf"]
