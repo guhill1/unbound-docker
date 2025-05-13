@@ -13,6 +13,7 @@ RUN apt-get update && apt-get install -y \
     pkg-config \
     libssl-dev \
     libevent-dev \
+    libexpat-dev \ 
     ca-certificates \
     curl \
     && rm -rf /var/lib/apt/lists/*
