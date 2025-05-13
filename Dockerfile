@@ -45,7 +45,6 @@ RUN apt-get update && apt-get install -y \
     libssl1.1 \
     libexpat1 \
     libevent \
-    libsodium \
     ca-certificates
 
 # Copy the build artifacts from the builder stage
