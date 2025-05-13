@@ -29,11 +29,13 @@ RUN apt-get update && apt-get install -y \
     libsodium-dev \
     lsb-release \
     ca-certificates \
+    gnupg2 \
     && rm -rf /var/lib/apt/lists/*
 
-# 安装 CMake 3.20 或更高版本
+# 添加 CMake 仓库并安装 CMake
 RUN echo "deb https://apt.kitware.com/ubuntu/ $(lsb_release -c | awk '{print $2}') main" | tee /etc/apt/sources.list.d/kitware.list \
     && curl -fsSL https://apt.kitware.com/keys/kitware-archive.sh | bash \
+    && apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 16FAAD7AF99A65E2 \
     && apt-get update && apt-get install -y cmake \
     && cmake --version
 
