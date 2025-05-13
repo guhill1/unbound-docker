@@ -30,7 +30,7 @@ WORKDIR /opt
 RUN wget https://www.openssl.org/source/openssl-3.1.5.tar.gz && \
     tar -xf openssl-3.1.5.tar.gz && \
     cd openssl-3.1.5 && \
-    ./Configure linux-x86_64 enable-tls1_3 enable-quic no-shared --prefix=/usr/local && \
+    ./Configure linux-x86_64 enable-tls1_3 no-shared --prefix=/usr/local && \
     make -j$(nproc) && make install_sw
 
 ENV PATH="/usr/local/bin:$PATH"
