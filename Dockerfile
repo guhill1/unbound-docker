@@ -19,11 +19,11 @@ RUN git clone https://github.com/ngtcp2/sfparse . \
     && ./configure --prefix=/usr \
     && make -j$(nproc) \
     && make install \
-    # 修复 sfparse.c 和 sfparse.h 的路径问题
+    # 修复 sfparse.h 路径问题
     && mkdir -p /usr/include/sfparse \
     && cp ./sfparse.h /usr/include/sfparse/sfparse.h \
-    # 确保 sfparse.c 可以找到
-    && cp ./sfparse.c /usr/src/sfparse/sfparse.c
+    # 确保 sfparse.c 可以找到（不再尝试复制到 /usr/src）
+    && cp ./sfparse.c /usr/src/sfparse.c
 
 # --- Build nghttp3 ---
 WORKDIR /build/nghttp3
