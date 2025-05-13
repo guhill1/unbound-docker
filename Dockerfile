@@ -14,9 +14,9 @@ RUN apt-get update && apt-get install -y \
     ca-certificates \
     git \
     curl \
-    libssl-dev \       
-    libevent-dev \       
-    libcap2 \               
+    libssl-dev \
+    libevent-dev \
+    libcap2 \
     bash \
     c-ares-dev \
     libnghttp2-dev \
@@ -34,8 +34,8 @@ RUN apt-get update && apt-get install -y \
     wget \
     libuv1-dev \
     linux-headers-generic \
-    libsf-dev \             # 保持 libsf-dev
-    && rm -rf /var/lib/apt/lists/*
+    libsf-dev && \  # 保持 libsf-dev
+    rm -rf /var/lib/apt/lists/*
 
 # 克隆并构建 nghttp2
 RUN git clone --depth=1 https://github.com/ngtcp2/nghttp2.git && \
@@ -57,17 +57,3 @@ RUN git clone --depth=1 https://github.com/ngtcp2/nghttp3.git && \
     autoreconf -i && \
     ./configure --prefix=/usr && \
     make -j$(nproc) && make install
-
-# 编译并安装目标程序
-# 例如，编译你的项目或需要的二进制文件
-# RUN make your_target && make install
-
-# 复制二进制和必要文件
-# 例如，你的程序需要的文件
-# COPY your_binary /usr/local/bin/
-
-# 清理构建文件（如果需要）
-# RUN rm -rf /build
-
-# 设置默认命令
-CMD ["bash"]
