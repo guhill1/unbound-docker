@@ -1,9 +1,6 @@
-# syntax=docker/dockerfile:1
-
-# ========= 构建阶段 =========
+# ==== 构建阶段 ====
 FROM ubuntu:22.04 AS builder
 
-# 设置非交互模式防止 tzdata 卡住
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y \
@@ -35,43 +32,33 @@ RUN apt-get update && apt-get install -y \
     wget \
     libuv1-dev \
     linux-headers-generic \
-    && ln -fs /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
-    && dpkg-reconfigure -f noninteractive tzdata \
     && rm -rf /var/lib/apt/lists/*
 
+# 构建 sfparse（nghttp3 依赖）
+RUN git clone --depth=1 https://github.com/ngtcp2/sfparse.git
+WORKDIR /sfparse
+RUN autoreconf -i && ./configure --prefix=/usr && make -j$(nproc) && make install
+
+# 构建 nghttp3
 RUN git clone --depth=1 https://github.com/ngtcp2/nghttp3.git
 WORKDIR /nghttp3
 RUN autoreconf -i && ./configure --prefix=/usr && make -j$(nproc) && make install
 
+# 构建 ngtcp2
 RUN git clone --depth=1 https://github.com/ngtcp2/ngtcp2.git
 WORKDIR /ngtcp2
-RUN autoreconf -i && ./configure --prefix=/usr && make -j$(nproc) && make install
+RUN autoreconf -i && ./configure --prefix=/usr --enable-lib-only && make -j$(nproc) && make install
 
+# 构建 Unbound with QUIC support
 RUN git clone --depth=1 https://github.com/NLnetLabs/unbound.git
 WORKDIR /unbound
-RUN ./autogen.sh && \
-    ./configure --prefix=/opt/unbound \
-                --enable-dns-over-quic \
-                --with-ssl \
-                --with-libnghttp2 \
-                --with-libevent \
-                --with-libev \
-                --with-libngtcp2 && \
-    make -j$(nproc) && make install
+RUN autoreconf -i && ./configure --prefix=/usr --enable-dns-over-quic --with-ssl --with-libevent && make -j$(nproc) && make install
 
-# ========= 运行阶段 =========
-FROM ubuntu:22.04 AS runtime
+# ==== 运行阶段 ====
+FROM alpine:latest
 
-ENV DEBIAN_FRONTEND=noninteractive
+RUN apk --no-cache add libssl3 libevent
 
-RUN apt-get update && apt-get install -y \
-    libevent-dev \
-    libssl-dev \
-    libcap2 \
-    && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /usr /usr
 
-COPY --from=builder /opt/unbound /opt/unbound
-
-ENV PATH="/opt/unbound/sbin:$PATH"
-
-CMD ["unbound", "-d"]
+ENTRYPOINT ["unbound"]
