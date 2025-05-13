@@ -83,8 +83,6 @@ RUN git clone https://github.com/NLnetLabs/unbound.git && \
     make -j$(nproc) && \
     make install
 
----
-
 ### ===== Stage 2: Runtime image =====
 FROM debian:bookworm-slim
 
@@ -95,4 +93,4 @@ COPY --from=builder /usr/local/lib /usr/local/lib
 
 ENV PATH="/opt/unbound/sbin:$PATH"
 
-CMD ["unbound", "-d"] 
+CMD ["unbound", "-d"]
