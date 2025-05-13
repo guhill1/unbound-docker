@@ -8,7 +8,6 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y \
     build-essential \
     git \
-    cmake \
     curl \
     pkg-config \
     libssl-dev \
@@ -18,6 +17,15 @@ RUN apt-get update && apt-get install -y \
     liblzma-dev \
     libudns-dev \
     && rm -rf /var/lib/apt/lists/*
+
+# 安装最新版本的 CMake（3.20+）
+RUN curl -fsSL https://github.com/Kitware/CMake/releases/download/v3.20.0/cmake-3.20.0-linux-x86_64.tar.gz -o /tmp/cmake.tar.gz && \
+    tar -zxvf /tmp/cmake.tar.gz -C /opt && \
+    ln -s /opt/cmake-3.20.0-linux-x86_64/bin/cmake /usr/local/bin/cmake && \
+    rm -rf /tmp/cmake.tar.gz
+
+# 确认 CMake 版本
+RUN cmake --version
 
 # 克隆并构建 sfparse
 RUN echo "Cloning sfparse repository..." && \
