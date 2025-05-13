@@ -34,8 +34,10 @@ RUN apt-get update && apt-get install -y \
     wget \
     libuv1-dev \
     linux-headers-generic \
-    libsf-dev && \  # 保持 libsf-dev
-    rm -rf /var/lib/apt/lists/*
+    libsf-dev
+
+# 清理不再需要的文件
+RUN rm -rf /var/lib/apt/lists/*
 
 # 克隆并构建 nghttp2
 RUN git clone --depth=1 https://github.com/ngtcp2/nghttp2.git && \
