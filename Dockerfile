@@ -1,75 +1,85 @@
-# syntax=docker/dockerfile:1.4
-
-### ----------- 第一阶段：构建支持 DoQ 的 Unbound ----------
+# =======================
+# Stage 1: Build Unbound
+# =======================
 FROM ubuntu:22.04 AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# 安装编译依赖
-RUN apt update && apt install -y \
+# 安装构建依赖
+RUN apt update && \
+    apt install -y \
     build-essential \
+    autoconf \
+    libtool \
+    pkg-config \
     git \
     curl \
-    cmake \
-    ninja-build \
+    ca-certificates \
     libssl-dev \
     libevent-dev \
-    libcap2 \
-    bash \
-    libc-ares-dev \
     libnghttp2-dev \
     libprotobuf-c-dev \
     protobuf-c-compiler \
-    pkg-config \
-    autoconf \
-    automake \
-    libtool \
+    cmake \
     libev-dev \
-    ca-certificates \
-    libuv1-dev \
-    libgnutls28-dev \
-    linux-headers-generic && \
-    rm -rf /var/lib/apt/lists/*
+    libc-ares-dev \
+    libexpat1-dev \
+    python3 \
+    python3-pip \
+    python3-setuptools
+
+# 构建 sfparse（nghttp3 的依赖）
+WORKDIR /build
+RUN git clone --depth=1 https://github.com/ngtcp2/sfparse.git
+WORKDIR /build/sfparse
+RUN autoreconf -i && ./configure --prefix=/usr && make -j$(nproc) && make install
 
 # 构建 nghttp3
+WORKDIR /build
 RUN git clone --depth=1 https://github.com/ngtcp2/nghttp3.git
-WORKDIR /nghttp3
-RUN cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr && \
-    cmake --build build && \
-    cmake --install build
+WORKDIR /build/nghttp3
+RUN autoreconf -i && ./configure --prefix=/usr && make -j$(nproc) && make install
 
-# 构建 ngtcp2（lib-only）
+# 构建 ngtcp2
+WORKDIR /build
 RUN git clone --depth=1 https://github.com/ngtcp2/ngtcp2.git
-WORKDIR /ngtcp2
-RUN cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr \
-    -DENABLE_LIB_ONLY=ON && \
-    cmake --build build && \
-    cmake --install build
+WORKDIR /build/ngtcp2
+RUN autoreconf -i && ./configure --prefix=/usr && make -j$(nproc) && make install
 
 # 构建 Unbound
+WORKDIR /build
 RUN git clone --depth=1 https://github.com/NLnetLabs/unbound.git
-WORKDIR /unbound
+WORKDIR /build/unbound
 RUN ./autogen.sh && \
-    ./configure --prefix=/usr \
+    ./configure \
+        --prefix=/usr \
         --with-ssl \
         --with-libevent \
         --with-libnghttp2 \
         --with-libngtcp2 \
         --with-libnghttp3 \
+        --with-libev \
+        --with-pthreads \
         --enable-dnscrypt \
         --enable-dnstap \
         --enable-subnet \
         --enable-tfo-client \
-        --enable-tfo-server \
-        --enable-cachedb && \
-    make -j$(nproc) && \
-    make install
+        --enable-tfo-server && \
+    make -j$(nproc) && make install
 
-### ----------- 第二阶段：精简运行环境 ----------
+# =======================
+# Stage 2: Runtime image
+# =======================
 FROM alpine:3.19
 
-RUN apk add --no-cache libssl1.1 libevent libcap bash
+# 安装运行时依赖（注意：libssl3 替代了过时的 libssl1.1）
+RUN apk add --no-cache libssl3 libevent libcap bash
 
+# 拷贝编译好的 Unbound
 COPY --from=builder /usr /usr
 
+# 创建默认配置目录（可选）
+RUN mkdir -p /etc/unbound
+
+# 设置默认入口
 ENTRYPOINT ["unbound"]
