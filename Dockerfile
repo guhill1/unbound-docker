@@ -3,8 +3,9 @@
 # ========= 构建阶段 =========
 FROM ubuntu:22.04 AS builder
 
-# 设置非交互模式，防止 tzdata 卡住
+# 设置非交互模式防止 tzdata 卡住
 ENV DEBIAN_FRONTEND=noninteractive
+
 RUN apt-get update && apt-get install -y \
     build-essential \
     autoconf \
@@ -18,8 +19,8 @@ RUN apt-get update && apt-get install -y \
     libevent-dev \
     libcap-dev \
     bash \
-    libc-ares-dev \                # 使用 libc-ares-dev 替代 c-ares-dev
-    libnghttp2-dev \              # 使用 libnghttp2-dev 替代 libnghttp2
+    libc-ares-dev \
+    libnghttp2-dev \
     libprotobuf-c-dev \
     protobuf-c-compiler \
     libev-dev \
@@ -38,14 +39,39 @@ RUN apt-get update && apt-get install -y \
     && dpkg-reconfigure -f noninteractive tzdata \
     && rm -rf /var/lib/apt/lists/*
 
-# 构建 nghttp3
-RUN git clone --depth=1 https://github.com/ngtcp2/nghttp3.git && \
-    cd nghttp3 && \
-    autoreconf -i && \
-    ./configure --prefix=/usr && \
+RUN git clone --depth=1 https://github.com/ngtcp2/nghttp3.git
+WORKDIR /nghttp3
+RUN autoreconf -i && ./configure --prefix=/usr && make -j$(nproc) && make install
+
+RUN git clone --depth=1 https://github.com/ngtcp2/ngtcp2.git
+WORKDIR /ngtcp2
+RUN autoreconf -i && ./configure --prefix=/usr && make -j$(nproc) && make install
+
+RUN git clone --depth=1 https://github.com/NLnetLabs/unbound.git
+WORKDIR /unbound
+RUN ./autogen.sh && \
+    ./configure --prefix=/opt/unbound \
+                --enable-dns-over-quic \
+                --with-ssl \
+                --with-libnghttp2 \
+                --with-libevent \
+                --with-libev \
+                --with-libngtcp2 && \
     make -j$(nproc) && make install
 
-# 构建 ngtcp2
-RUN git clone --depth=1 https://github.com/ngtcp2/ngtcp2.git && \
-    cd ngtcp2 && \
-    autoreconf -i && \
+# ========= 运行阶段 =========
+FROM ubuntu:22.04 AS runtime
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y \
+    libevent-dev \
+    libssl-dev \
+    libcap2 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /opt/unbound /opt/unbound
+
+ENV PATH="/opt/unbound/sbin:$PATH"
+
+CMD ["unbound", "-d"]
