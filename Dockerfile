@@ -1,54 +1,56 @@
-# 使用合适的基础镜像
-FROM ubuntu:20.04
+# ---------- Stage 1: Build Dependencies ----------
+FROM ubuntu:22.04 as builder
 
-# 设置环境变量，避免交互提示
-ENV DEBIAN_FRONTEND=noninteractive
+ARG DEBIAN_FRONTEND=noninteractive
 
-# 更新并安装依赖项
 RUN apt-get update && apt-get install -y \
     build-essential \
+    cmake \
     git \
-    curl \
+    autoconf \
+    automake \
+    libtool \
     pkg-config \
     libssl-dev \
     libevent-dev \
-    libssl-dev \
-    libnghttp2-dev \
-    liblzma-dev \
-    libudns-dev \
-    cmake \
+    ca-certificates \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# 安装最新版本的 CMake（3.20+）
-RUN curl -fsSL https://github.com/Kitware/CMake/releases/download/v3.20.0/cmake-3.20.0-linux-x86_64.tar.gz -o /tmp/cmake.tar.gz && \
-    tar -zxvf /tmp/cmake.tar.gz -C /opt && \
-    ln -s /opt/cmake-3.20.0-linux-x86_64/bin/cmake /usr/local/bin/cmake && \
-    rm -rf /tmp/cmake.tar.gz
+WORKDIR /build
 
-# 确认 CMake 版本
-RUN cmake --version
-
-# 克隆并构建 sfparse
-RUN echo "Cloning sfparse repository..." && \
-    git clone https://github.com/ngtcp2/sfparse.git /build/sfparse && \
-    cd /build/sfparse && \
-    git checkout main && \
-    echo "sfparse repository cloned successfully"
-
-# 克隆并构建 nghttp3
-RUN echo "Cloning nghttp3 repository..." && \
-    git clone --depth 1 https://github.com/ngtcp2/nghttp3.git /build/nghttp3 && \
-    cd /build/nghttp3 && \
-    git checkout main && \
-    echo "Running cmake for nghttp3..." && \
-    cmake . -DCMAKE_BUILD_TYPE=Release -DSFPARSE_DIR=/build/sfparse && \
-    echo "Running make for nghttp3..." && \
+# ---- Build nghttp3 (with submodules) ----
+RUN git clone --recursive https://github.com/ngtcp2/nghttp3.git && \
+    cd nghttp3 && \
+    cmake . -DCMAKE_BUILD_TYPE=Release && \
     make -j$(nproc) && \
-    make install && \
-    echo "nghttp3 installation complete"
+    make install
 
-# 清理不必要的文件
-RUN rm -rf /build
+# ---- Build ngtcp2 ----
+RUN git clone --recursive https://github.com/ngtcp2/ngtcp2.git && \
+    cd ngtcp2 && \
+    autoreconf -i && \
+    ./configure --enable-lib-only && \
+    make -j$(nproc) && \
+    make install
 
-# 默认启动配置 (可以根据需要调整 Unbound 配置)
-CMD ["unbound"]
+# ---- Build Unbound ----
+RUN curl -LO https://nlnetlabs.nl/downloads/unbound/unbound-1.20.0.tar.gz && \
+    tar xzf unbound-1.20.0.tar.gz && \
+    cd unbound-1.20.0 && \
+    ./configure --with-ssl --with-libevent --enable-dnscrypt --enable-dns-over-tls --enable-dns-over-https --enable-dns-over-quic && \
+    make -j$(nproc) && \
+    make install
+
+# ---------- Stage 2: Minimal Runtime ----------
+FROM alpine:3.20
+
+RUN apk add --no-cache libevent openssl
+
+COPY --from=builder /usr/local /usr/local
+
+# 添加默认配置文件
+COPY --from=builder /build/unbound-1.20.0/doc/example.conf /etc/unbound/unbound.conf
+
+# 默认入口
+CMD ["unbound", "-d", "-c", "/etc/unbound/unbound.conf"]
