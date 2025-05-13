@@ -11,9 +11,6 @@ RUN apt-get update && apt-get install -y \
     automake \
     pkg-config \
     libssl-dev \
-    libexpat1-dev \
-    libevent-dev \
-    libsodium-dev \
     cmake \
     gcc \
     g++ \
