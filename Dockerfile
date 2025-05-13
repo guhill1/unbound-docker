@@ -18,8 +18,8 @@ RUN apt-get update && apt-get install -y \
     libevent-dev \
     libcap2 \
     bash \
-    c-ares-dev \
-    libnghttp2-dev \
+    libc-ares-dev \  # 使用 libc-ares-dev 替代 c-ares-dev
+    libnghttp2-dev \  # 使用 libnghttp2-dev 代替 libnghttp2
     libprotobuf-c-dev \
     protobuf-c-compiler \
     libev-dev \
@@ -33,8 +33,7 @@ RUN apt-get update && apt-get install -y \
     zlib1g-dev \
     wget \
     libuv1-dev \
-    linux-headers-generic \
-    libsf-dev
+    linux-headers-generic
 
 # 清理不再需要的文件
 RUN rm -rf /var/lib/apt/lists/*
