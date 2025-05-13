@@ -1,12 +1,11 @@
-# 使用 Ubuntu 作为基础镜像
-FROM ubuntu:22.04
+# 使用官方的 Ubuntu 基础镜像
+FROM ubuntu:20.04
 
-# 设置时区和非交互模式
+# 设置环境变量，防止交互式安装
 ENV DEBIAN_FRONTEND=noninteractive
-ENV TZ=UTC
 
-# 更新和安装必要的依赖
-RUN echo "Updating and installing dependencies..." && apt-get update && apt-get install -y \
+# 更新并安装必要的依赖
+RUN apt-get update && apt-get install -y \
     build-essential \
     cmake \
     wget \
@@ -24,7 +23,7 @@ RUN echo "Updating and installing dependencies..." && apt-get update && apt-get 
     automake \
     libtool \
     libcap-dev \
-    libssl-dev \
+    linux-headers-$(uname -r) \
     curl \
     ca-certificates \
     libnghttp3-dev \
@@ -37,51 +36,58 @@ RUN echo "Updating and installing dependencies..." && apt-get update && apt-get 
     libsodium-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# 设置工作目录
+# 安装其他必要的依赖（如 OpenSSL、libevent 等）
+RUN pip3 install --upgrade pip
+
+# 创建工作目录
 WORKDIR /build
 
 # 克隆并构建 nghttp3
 RUN echo "Cloning nghttp3 repository..." && \
     git clone --depth 1 https://github.com/ngtcp2/nghttp3.git /build/nghttp3 && \
     cd /build/nghttp3 && \
-    git checkout master && \
-    echo "Running cmake for nghttp3..." && cmake . && \
-    echo "Running make for nghttp3..." && make -j$(nproc) && \
-    echo "Installing nghttp3..." && make install && \
+    git branch -r && \
+    git checkout main && \
+    echo "Running cmake for nghttp3..." && \
+    cmake . -DCMAKE_BUILD_TYPE=Release && \
+    echo "Running make for nghttp3..." && \
+    make -j$(nproc) && \
+    echo "Installing nghttp3..." && \
+    make install && \
     echo "nghttp3 installation complete"
 
 # 克隆并构建 ngtcp2
 RUN echo "Cloning ngtcp2 repository..." && \
-    git clone https://github.com/ngtcp2/ngtcp2.git /build/ngtcp2 && \
+    git clone --depth 1 https://github.com/ngtcp2/ngtcp2.git /build/ngtcp2 && \
     cd /build/ngtcp2 && \
-    echo "Running cmake for ngtcp2..." && cmake . && \
-    echo "Running make for ngtcp2..." && make -j$(nproc) && \
-    echo "Installing ngtcp2..." && make install && \
+    git branch -r && \
+    git checkout main && \
+    echo "Running cmake for ngtcp2..." && \
+    cmake . -DCMAKE_BUILD_TYPE=Release && \
+    echo "Running make for ngtcp2..." && \
+    make -j$(nproc) && \
+    echo "Installing ngtcp2..." && \
+    make install && \
     echo "ngtcp2 installation complete"
 
-# 创建目录并下载 sfparse 文件
-RUN echo "Creating sfparse directory..." && \
-    mkdir -p /usr/include/sfparse && \
-    echo "Downloading sfparse.c..." && \
-    wget https://raw.githubusercontent.com/ngtcp2/sfparse/main/sfparse.c -O /usr/include/sfparse/sfparse.c && \
-    echo "Downloading sfparse.h..." && \
-    wget https://raw.githubusercontent.com/ngtcp2/sfparse/main/sfparse.h -O /usr/include/sfparse/sfparse.h && \
-    echo "sfparse files downloaded"
-
-# 编译和安装 Unbound
-WORKDIR /build/unbound
-RUN echo "Starting Unbound build..." && \
-    ./autogen.sh && \
-    echo "Configuring Unbound..." && \
-    ./configure --enable-dns-over-https --enable-dns-over-quad9 --enable-dns-over-quic --with-ssl-dir=/usr/local/ssl && \
+# 克隆并构建 Unbound
+RUN echo "Cloning Unbound repository..." && \
+    git clone --depth 1 https://github.com/NLnetLabs/unbound.git /build/unbound && \
+    cd /build/unbound && \
+    git checkout main && \
+    echo "Running cmake for Unbound..." && \
+    cmake . -DCMAKE_BUILD_TYPE=Release && \
     echo "Running make for Unbound..." && \
     make -j$(nproc) && \
     echo "Installing Unbound..." && \
     make install && \
     echo "Unbound installation complete"
 
-# 暴露 Unbound 的默认端口
-EXPOSE 53/tcp 53/udp
+# 设置 Unbound 配置（跳过此部分，根据需要添加）
+# RUN mkdir -p /etc/unbound && ...
 
-# 启动 Unbound
-CMD echo "Starting Unbound..." && /usr/local/sbin/unbound -d -v
+# 清理构建过程中生成的文件
+RUN rm -rf /build/nghttp3 /build/ngtcp2 /build/unbound
+
+# 设置容器启动命令
+CMD ["unbound", "-d"]
