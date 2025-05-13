@@ -37,7 +37,7 @@ RUN autoreconf -i \
     && make -j$(nproc) \
     && make install
 
-# 设置编译环境变量，确保 nghttp3 能找到 sfparse 的头文件
+# 设置环境变量，确保编译时能够找到 sfparse 的头文件
 ENV CFLAGS="-I/usr/include/sfparse"
 ENV LDFLAGS="-L/usr/lib"
 
