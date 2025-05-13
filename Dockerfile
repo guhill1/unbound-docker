@@ -28,7 +28,7 @@ RUN apt-get update && apt-get install -y \
     libz-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# 构建 sfparse
+# 安装 sfparse 库
 WORKDIR /build
 RUN git clone --depth=1 https://github.com/ngtcp2/sfparse.git
 WORKDIR /build/sfparse
@@ -37,15 +37,14 @@ RUN autoreconf -i \
     && make -j$(nproc) \
     && make install
 
-# 构建 nghttp3
-WORKDIR /build
-RUN git clone --depth=1 https://github.com/ngtcp2/nghttp3.git
-WORKDIR /build/nghttp3
-
 # 设置编译环境变量，确保 nghttp3 能找到 sfparse 的头文件
 ENV CFLAGS="-I/usr/include/sfparse"
 ENV LDFLAGS="-L/usr/lib"
 
+# 构建 nghttp3
+WORKDIR /build
+RUN git clone --depth=1 https://github.com/ngtcp2/nghttp3.git
+WORKDIR /build/nghttp3
 RUN autoreconf -i \
     && ./configure --prefix=/usr \
     && make -j$(nproc) \
