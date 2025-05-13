@@ -43,7 +43,8 @@ RUN git clone --depth=1 https://github.com/ngtcp2/nghttp3.git
 WORKDIR /build/nghttp3
 
 # 设置编译环境变量，确保 nghttp3 能找到 sfparse 的头文件
-ENV CPPFLAGS="-I/usr/include/sfparse"
+ENV CFLAGS="-I/usr/include/sfparse"
+ENV LDFLAGS="-L/usr/lib"
 
 RUN autoreconf -i \
     && ./configure --prefix=/usr \
