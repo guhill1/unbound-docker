@@ -19,17 +19,18 @@ RUN apt-get update && apt-get install -y \
     wget \
     && rm -rf /var/lib/apt/lists/*
 
-# 安装 OpenSSL 3.x 版本
-RUN wget https://www.openssl.org/source/openssl-3.0.8.tar.gz && \
-    tar -xvzf openssl-3.0.8.tar.gz && \
-    cd openssl-3.0.8 && \
+# 安装 OpenSSL 1.1.1 版本
+RUN wget https://www.openssl.org/source/openssl-1.1.1l.tar.gz && \
+    tar -xvzf openssl-1.1.1l.tar.gz && \
+    cd openssl-1.1.1l && \
     ./config --prefix=/usr/local --openssldir=/usr/local/openssl && \
     make -j$(nproc) && \
     make install
 
-# 更新环境变量，确保使用新安装的 OpenSSL
+# 更新环境变量，确保使用新安装的 OpenSSL 1.1.1
 ENV PATH="/usr/local/bin:$PATH"
 ENV LD_LIBRARY_PATH="/usr/local/lib:$LD_LIBRARY_PATH"
+ENV PKG_CONFIG_PATH="/usr/local/lib/pkgconfig:$PKG_CONFIG_PATH"
 
 WORKDIR /build
 
@@ -44,7 +45,7 @@ RUN git clone --recursive https://github.com/ngtcp2/nghttp3.git && \
 RUN git clone --recursive https://github.com/ngtcp2/ngtcp2.git && \
     cd ngtcp2 && \
     autoreconf -i && \
-    ./configure --enable-lib-only --with-openssl --with-libev --with-nghttp3 && \
+    ./configure --enable-lib-only --with-openssl=/usr/local --with-libev --with-nghttp3 && \
     make -j$(nproc) && \
     make install
 
