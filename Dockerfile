@@ -11,13 +11,25 @@ RUN apt-get update && apt-get install -y \
     automake \
     libtool \
     pkg-config \
-    libssl-dev \
     libevent-dev \
     libexpat-dev \
     libsodium-dev \
     ca-certificates \
     curl \
+    wget \
     && rm -rf /var/lib/apt/lists/*
+
+# 安装 OpenSSL 3.x 版本
+RUN wget https://www.openssl.org/source/openssl-3.0.8.tar.gz && \
+    tar -xvzf openssl-3.0.8.tar.gz && \
+    cd openssl-3.0.8 && \
+    ./config --prefix=/usr/local --openssldir=/usr/local/openssl --enable-ec_nistp_64_gcc_128 && \
+    make -j$(nproc) && \
+    make install
+
+# 更新环境变量，确保使用新安装的 OpenSSL
+ENV PATH="/usr/local/bin:$PATH"
+ENV LD_LIBRARY_PATH="/usr/local/lib:$LD_LIBRARY_PATH"
 
 WORKDIR /build
 
@@ -47,14 +59,12 @@ RUN curl -LO https://nlnetlabs.nl/downloads/unbound/unbound-1.20.0.tar.gz && \
 # ---------- Stage 2: Minimal Runtime ----------
 FROM alpine:3.20
 
-# 安装运行时所需的依赖
-RUN apk add --no-cache libevent openssl ca-certificates libc6-compat
+RUN apk add --no-cache libevent openssl
 
-# 将构建阶段的文件复制到运行时镜像
 COPY --from=builder /usr/local /usr/local
 
-# 复制一个自定义的配置文件（推荐修改）
-COPY ./unbound.conf /etc/unbound/unbound.conf
+# 添加默认配置文件
+COPY --from=builder /build/unbound-1.20.0/doc/example.conf /etc/unbound/unbound.conf
 
-# 默认启动命令
+# 默认入口
 CMD ["unbound", "-d", "-c", "/etc/unbound/unbound.conf"]
