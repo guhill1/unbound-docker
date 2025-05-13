@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y \
     libnghttp2-dev \
     liblzma-dev \
     libudns-dev \
+    cmake \
     && rm -rf /var/lib/apt/lists/*
 
 # 安装最新版本的 CMake（3.20+）
@@ -45,30 +46,6 @@ RUN echo "Cloning nghttp3 repository..." && \
     make -j$(nproc) && \
     make install && \
     echo "nghttp3 installation complete"
-
-# 克隆并构建 ngtcp2
-RUN echo "Cloning ngtcp2 repository..." && \
-    git clone --depth 1 https://github.com/ngtcp2/ngtcp2.git /build/ngtcp2 && \
-    cd /build/ngtcp2 && \
-    git checkout main && \
-    echo "Running cmake for ngtcp2..." && \
-    cmake . -DCMAKE_BUILD_TYPE=Release -DNGTCP2_USE_QUICHE=ON && \
-    echo "Running make for ngtcp2..." && \
-    make -j$(nproc) && \
-    make install && \
-    echo "ngtcp2 installation complete"
-
-# 克隆并构建 Unbound
-RUN echo "Cloning Unbound repository..." && \
-    git clone --depth 1 https://github.com/NLnetLabs/unbound.git /build/unbound && \
-    cd /build/unbound && \
-    git checkout main && \
-    echo "Running cmake for Unbound..." && \
-    cmake . -DCMAKE_BUILD_TYPE=Release -DENABLE_DNS_OVER_QUIC=ON -DSFPARSE_DIR=/build/sfparse && \
-    echo "Running make for Unbound..." && \
-    make -j$(nproc) && \
-    make install && \
-    echo "Unbound installation complete"
 
 # 清理不必要的文件
 RUN rm -rf /build
