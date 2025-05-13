@@ -25,7 +25,6 @@ RUN apt-get update && apt-get install -y \
     libtool \
     libcap-dev \
     libssl-dev \
-    linux-headers-$(uname -r) \
     curl \
     ca-certificates \
     libnghttp3-dev \
@@ -65,19 +64,6 @@ RUN ./autogen.sh && \
     ./configure --enable-dns-over-https --enable-dns-over-quad9 --enable-dns-over-quic --with-ssl-dir=/usr/local/ssl && \
     make -j$(nproc) && \
     make install
-
-# 设置 Unbound 配置
-RUN mkdir -p /etc/unbound && \
-    echo "server:" > /etc/unbound/unbound.conf && \
-    echo "    verbosity: 1" >> /etc/unbound/unbound.conf && \
-    echo "    interface: 0.0.0.0" >> /etc/unbound/unbound.conf && \
-    echo "    interface: ::0" >> /etc/unbound/unbound.conf && \
-    echo "    do-ipv6: yes" >> /etc/unbound/unbound.conf && \
-    echo "    do-ipv4: yes" >> /etc/unbound/unbound.conf && \
-    echo "    access-control: 0.0.0.0/0 allow" >> /etc/unbound/unbound.conf && \
-    echo "    access-control: ::0/0 allow" >> /etc/unbound/unbound.conf && \
-    echo "    dns-over-quic: yes" >> /etc/unbound/unbound.conf && \
-    echo "    do-not-query-localhost: no" >> /etc/unbound/unbound.conf
 
 # 暴露 Unbound 的默认端口
 EXPOSE 53/tcp 53/udp
