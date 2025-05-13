@@ -12,18 +12,9 @@ RUN apk add --no-cache \
 
 WORKDIR /build
 
-# --- Build sfparse ---
-WORKDIR /build/sfparse
-RUN git clone https://github.com/ngtcp2/sfparse . \
-    && autoreconf -i \
-    && ./configure --prefix=/usr \
-    && make -j$(nproc) \
-    && make install \
-    # 修复 sfparse.h 路径问题
-    && mkdir -p /usr/include/sfparse \
-    && cp ./sfparse.h /usr/include/sfparse/sfparse.h \
-    # 直接将 sfparse.c 复制到 /usr/include/sfparse/
-    && cp ./sfparse.c /usr/include/sfparse/sfparse.c
+# 下载并手动复制 sfparse 文件
+RUN wget https://raw.githubusercontent.com/ngtcp2/sfparse/main/sfparse.c -O /usr/include/sfparse/sfparse.c \
+    && wget https://raw.githubusercontent.com/ngtcp2/sfparse/main/sfparse.h -O /usr/include/sfparse/sfparse.h
 
 # --- Build nghttp3 ---
 WORKDIR /build/nghttp3
@@ -67,5 +58,4 @@ RUN apk add --no-cache libevent openssl libstdc++
 
 COPY --from=builder /usr /usr
 
-# 可选：添加配置文件和启动命令
 ENTRYPOINT ["unbound", "-d"]
