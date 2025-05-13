@@ -1,60 +1,62 @@
-# 第一阶段：使用 Ubuntu 编译 Unbound
+# 第一阶段：构建阶段
 FROM ubuntu:22.04 AS builder
 
-# 安装依赖
-RUN apt-get update && apt-get install -y \
-    curl \
-    gcc \
-    g++ \
-    make \
-    libssl-dev \
-    libevent-dev \
-    libexpat1-dev \
-    pkg-config \
-    tar \
-    xz-utils \
-    ca-certificates && \
-    rm -rf /var/lib/apt/lists/*
+# 安装构建依赖
+RUN apt update && apt install -y \
+  git autoconf automake libtool build-essential pkg-config \
+  libssl-dev libevent-dev libexpat1-dev ca-certificates curl
 
-# 下载并解压 Unbound 源码
-WORKDIR /build
-RUN curl -LO https://nlnetlabs.nl/downloads/unbound/unbound-1.19.3.tar.gz && \
-    tar xzf unbound-1.19.3.tar.gz && \
-    cd unbound-1.19.3 && \
-    ./configure --with-libevent --with-ssl --prefix=/usr && \
-    make -j$(nproc) && \
-    make install
+# 构建 nghttp3
+RUN git clone https://github.com/nghttp2/nghttp3.git && \
+    cd nghttp3 && autoreconf -i && \
+    ./configure --prefix=/usr && make -j$(nproc) && make install
 
-# 第二阶段：Alpine 精简运行环境
+# 构建 ngtcp2
+RUN git clone https://github.com/nghttp2/ngtcp2.git && \
+    cd ngtcp2 && autoreconf -i && \
+    ./configure --prefix=/usr --with-libnghttp3=/usr && make -j$(nproc) && make install
+
+# 构建 Unbound（开启 DNS-over-QUIC）
+RUN git clone https://github.com/NLnetLabs/unbound.git && \
+    cd unbound && \
+    git checkout release-1.19.3 && \
+    ./autogen.sh && \
+    ./configure \
+        --enable-dns-over-quic \
+        --with-libevent \
+        --with-ssl \
+        --with-libnghttp3=/usr \
+        --with-libngtcp2=/usr \
+        --prefix=/usr && \
+    make -j$(nproc) && make install
+
+# 第二阶段：运行时镜像
 FROM alpine:latest
 
 # 安装运行时依赖
-RUN apk add --no-cache \
-    libevent \
-    openssl \
-    expat \
-    shadow
+RUN apk add --no-cache libevent openssl expat
 
-# 从 builder 中复制编译好的文件
+# 拷贝编译好的组件
 COPY --from=builder /usr/sbin/unbound /usr/sbin/
 COPY --from=builder /usr/lib/libunbound.so* /usr/lib/
-COPY --from=builder /usr/include/unbound.h /usr/include/
-COPY --from=builder /usr/lib/pkgconfig/libunbound.pc /usr/lib/pkgconfig/
+COPY --from=builder /usr/lib/libnghttp3.so* /usr/lib/
+COPY --from=builder /usr/lib/libngtcp2*.so* /usr/lib/
 
-# 添加 unbound 用户
-RUN addgroup -S unbound && adduser -S unbound -G unbound
+# 创建配置文件目录
+RUN mkdir -p /etc/unbound
 
-# 创建配置目录
-RUN mkdir -p /etc/unbound /var/lib/unbound && \
-    chown -R unbound:unbound /etc/unbound /var/lib/unbound
-
-# 复制配置文件（你需要提供 unbound.conf 文件）
+# 可选：添加 unbound 配置
 COPY unbound.conf /etc/unbound/unbound.conf
+COPY unbound_server.key /etc/unbound/unbound_server.key
+COPY unbound_server.pem /etc/unbound/unbound_server.pem
 
-# 设置权限
-RUN chmod 640 /etc/unbound/unbound.conf && \
-    chown unbound:unbound /etc/unbound/unbound.conf
+# 创建运行目录
+RUN mkdir -p /var/lib/unbound && \
+    adduser -S -G unbound unbound && \
+    chown -R unbound:unbound /etc/unbound /var/lib/unbound && \
+    chmod 640 /etc/unbound/*
 
-# 设置默认运行命令
 USER unbound
+
+# 启动命令（带调试信息）
 CMD ["unbound", "-dd", "-c", "/etc/unbound/unbound.conf"]
