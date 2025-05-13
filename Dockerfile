@@ -6,7 +6,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=UTC
 
 # 更新和安装必要的依赖
-RUN apt-get update && apt-get install -y \
+RUN echo "Updating and installing dependencies..." && apt-get update && apt-get install -y \
     build-essential \
     cmake \
     wget \
@@ -40,33 +40,48 @@ RUN apt-get update && apt-get install -y \
 # 设置工作目录
 WORKDIR /build
 
-# 克隆 Unbound 源代码
-RUN git clone https://github.com/NLnetLabs/unbound.git
-
 # 克隆并构建 nghttp3
-RUN git clone https://github.com/ngtcp2/nghttp3.git /build/nghttp3 && \
+RUN echo "Cloning nghttp3 repository..." && \
+    git clone --depth 1 https://github.com/ngtcp2/nghttp3.git /build/nghttp3 && \
     cd /build/nghttp3 && \
-    cmake . && make -j$(nproc) && make install
+    git checkout master && \
+    echo "Running cmake for nghttp3..." && cmake . && \
+    echo "Running make for nghttp3..." && make -j$(nproc) && \
+    echo "Installing nghttp3..." && make install && \
+    echo "nghttp3 installation complete"
 
 # 克隆并构建 ngtcp2
-RUN git clone https://github.com/ngtcp2/ngtcp2.git /build/ngtcp2 && \
+RUN echo "Cloning ngtcp2 repository..." && \
+    git clone https://github.com/ngtcp2/ngtcp2.git /build/ngtcp2 && \
     cd /build/ngtcp2 && \
-    cmake . && make -j$(nproc) && make install
+    echo "Running cmake for ngtcp2..." && cmake . && \
+    echo "Running make for ngtcp2..." && make -j$(nproc) && \
+    echo "Installing ngtcp2..." && make install && \
+    echo "ngtcp2 installation complete"
 
 # 创建目录并下载 sfparse 文件
-RUN mkdir -p /usr/include/sfparse && \
+RUN echo "Creating sfparse directory..." && \
+    mkdir -p /usr/include/sfparse && \
+    echo "Downloading sfparse.c..." && \
     wget https://raw.githubusercontent.com/ngtcp2/sfparse/main/sfparse.c -O /usr/include/sfparse/sfparse.c && \
-    wget https://raw.githubusercontent.com/ngtcp2/sfparse/main/sfparse.h -O /usr/include/sfparse/sfparse.h
+    echo "Downloading sfparse.h..." && \
+    wget https://raw.githubusercontent.com/ngtcp2/sfparse/main/sfparse.h -O /usr/include/sfparse/sfparse.h && \
+    echo "sfparse files downloaded"
 
 # 编译和安装 Unbound
 WORKDIR /build/unbound
-RUN ./autogen.sh && \
+RUN echo "Starting Unbound build..." && \
+    ./autogen.sh && \
+    echo "Configuring Unbound..." && \
     ./configure --enable-dns-over-https --enable-dns-over-quad9 --enable-dns-over-quic --with-ssl-dir=/usr/local/ssl && \
+    echo "Running make for Unbound..." && \
     make -j$(nproc) && \
-    make install
+    echo "Installing Unbound..." && \
+    make install && \
+    echo "Unbound installation complete"
 
 # 暴露 Unbound 的默认端口
 EXPOSE 53/tcp 53/udp
 
 # 启动 Unbound
-CMD ["/usr/local/sbin/unbound", "-d", "-v"]
+CMD echo "Starting Unbound..." && /usr/local/sbin/unbound -d -v
