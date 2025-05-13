@@ -1,7 +1,11 @@
-# ==== Stage 1: Build environment ====
+# ===============================
+# 第一阶段：构建依赖和 Unbound
+# ===============================
 FROM ubuntu:22.04 AS builder
 
-# 安装依赖
+ENV DEBIAN_FRONTEND=noninteractive
+
+# 安装构建依赖
 RUN apt-get update && apt-get install -y \
     build-essential \
     autoconf \
@@ -15,8 +19,7 @@ RUN apt-get update && apt-get install -y \
     libevent-dev \
     libcap-dev \
     bash \
-    c-ares-dev \
-    libnghttp2-dev \
+    libc-ares-dev \
     libprotobuf-c-dev \
     protobuf-c-compiler \
     libev-dev \
@@ -33,55 +36,63 @@ RUN apt-get update && apt-get install -y \
     linux-headers-generic \
     && rm -rf /var/lib/apt/lists/*
 
-# 构建 nghttp3
+WORKDIR /build
+
+# 编译 nghttp3
 RUN git clone --depth=1 https://github.com/ngtcp2/nghttp3.git && \
     cd nghttp3 && \
     autoreconf -i && \
     ./configure --prefix=/usr && \
     make -j$(nproc) && make install
 
-# 构建 ngtcp2
+# 编译 ngtcp2
 RUN git clone --depth=1 https://github.com/ngtcp2/ngtcp2.git && \
     cd ngtcp2 && \
     autoreconf -i && \
-    ./configure --prefix=/usr --with-openssl --enable-lib-only && \
+    ./configure --prefix=/usr --with-openssl && \
     make -j$(nproc) && make install
 
-# 构建 Unbound（开启 DoQ 支持）
-RUN git clone --branch release-1.19.3 https://github.com/NLnetLabs/unbound.git && \
-    cd unbound && \
-    autoreconf -i && \
-    ./configure \
-      --prefix=/usr \
-      --with-libevent \
-      --with-ssl \
-      --enable-dnscrypt \
-      --enable-subnet \
-      --enable-dnstap \
-      --enable-tfo-client \
-      --enable-tfo-server \
-      --enable-pthreads \
-      --enable-ecdsa \
-      --enable-ed25519 \
-      --enable-eddsa \
-      --enable-dns-over-quic \
-      --with-nghttp3=/usr \
-      --with-ngtcp2=/usr && \
-    make -j$(nproc) && make install
+# 获取并编译 unbound（需要手动替换你要使用的版本）
+ENV UNBOUND_VERSION=1.20.0
+RUN wget https://www.nlnetlabs.nl/downloads/unbound/unbound-${UNBOUND_VERSION}.tar.gz && \
+    tar xzf unbound-${UNBOUND_VERSION}.tar.gz && \
+    cd unbound-${UNBOUND_VERSION} && \
+    ./configure --prefix=/opt/unbound \
+        --enable-subnet \
+        --enable-dnscrypt \
+        --enable-dnstap \
+        --enable-tfo-client \
+        --enable-tfo-server \
+        --enable-ipsecmod \
+        --enable-ecdsa \
+        --enable-ed25519 \
+        --enable-ed448 \
+        --with-libevent \
+        --with-ssl \
+        --with-libngtcp2 \
+        --with-libnghttp3 \
+        --enable-dns-over-quic \
+        && make -j$(nproc) && make install
 
-# ==== Stage 2: Minimal runtime image ====
-FROM alpine:3.21 AS runtime
+# ===============================
+# 第二阶段：精简运行环境
+# ===============================
+FROM ubuntu:22.04
 
-# 安装运行时依赖
-RUN apk add --no-cache libevent openssl
+RUN apt-get update && apt-get install -y \
+    libevent-2.1-7 \
+    libssl3 \
+    libc-ares2 \
+    libprotobuf-c1 \
+    libev4 \
+    libyaml-0-2 \
+    libexpat1 \
+    zlib1g \
+    && rm -rf /var/lib/apt/lists/*
 
-# 复制构建产物
-COPY --from=builder /usr/sbin/unbound /usr/sbin/unbound
-COPY --from=builder /usr/lib/libunbound.so* /usr/lib/
-COPY --from=builder /usr/share/unbound /usr/share/unbound
+# 复制构建好的 unbound
+COPY --from=builder /opt/unbound /opt/unbound
 
-# 配置文件目录
-VOLUME /etc/unbound
-
-# 默认执行
-CMD ["unbound", "-d", "-c", "/etc/unbound/unbound.conf"]
+# 设置默认执行命令
+ENTRYPOINT ["/opt/unbound/sbin/unbound"]
+CMD ["-d"]
