@@ -1,38 +1,33 @@
-# Stage 1: Build everything
-FROM ubuntu:22.04 AS builder
+FROM alpine:3.18 as builder
 
-ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y \
-    build-essential \
+# 安装构建依赖
+RUN apk add --no-cache \
+    build-base \
     autoconf \
     automake \
     libtool \
-    pkg-config \
-    ca-certificates \
     git \
-    wget \
-    curl \
+    cmake \
+    openssl-dev \
     libev-dev \
-    libnghttp2-dev \
     libevent-dev \
-    python3 \
-    python3-pip
+    linux-headers \
+    pkgconf \
+    doxygen \
+    bash \
+    zlib-dev \
+    util-linux-dev \
+    libcap \
+    libcap-dev
 
-# ---------- Build OpenSSL (quictls fork) ----------
 WORKDIR /opt
-RUN git clone --depth=1 -b OpenSSL_1_1_1 https://github.com/quictls/openssl.git && \
-    cd openssl && \
-    ./config --prefix=/usr/local --openssldir=/usr/local/openssl && \
-    make -j$(nproc) && \
-    make install
-
-ENV PATH="/usr/local/bin:$PATH"
-ENV LD_LIBRARY_PATH="/usr/local/lib"
-ENV PKG_CONFIG_PATH="/usr/local/lib/pkgconfig"
 
 # ---------- Build nghttp3 ----------
-RUN git clone --depth=1 https://github.com/ngtcp2/nghttp3.git && \
-    cd nghttp3 && \
+RUN git clone --depth=1 https://github.com/ngtcp2/nghttp3.git
+
+# ---------- Build sfparse ----------
+RUN git clone --depth=1 https://github.com/ngtcp2/sfparse.git && \
+    cd sfparse && \
     autoreconf -i && \
     ./configure --prefix=/usr/local && \
     make -j$(nproc) && \
@@ -42,40 +37,46 @@ RUN git clone --depth=1 https://github.com/ngtcp2/nghttp3.git && \
 RUN git clone --recursive https://github.com/ngtcp2/ngtcp2.git && \
     cd ngtcp2 && \
     autoreconf -i && \
-    ./configure \
-        --enable-lib-only \
-        --with-openssl=/usr/local \
+    ./configure --enable-lib-only \
+        --with-openssl \
         --with-libev \
-        --with-nghttp3 && \
+        --with-nghttp3 \
+        --prefix=/usr/local && \
     make -j$(nproc) && \
     make install
 
-# ---------- Build Unbound ----------
-RUN git clone https://github.com/NLnetLabs/unbound.git && \
+# ---------- Build unbound ----------
+RUN git clone --depth=1 https://github.com/NLnetLabs/unbound.git && \
     cd unbound && \
-    git checkout release-1.19.3 && \
     autoreconf -fi && \
-    ./configure \
-        --with-ssl=/usr/local \
-        --with-libevent \
+    ./configure --prefix=/opt/unbound \
         --enable-dnscrypt \
         --enable-dnstap \
         --enable-subnet \
         --enable-tfo-client \
         --enable-tfo-server \
-        --enable-pthreads \
-        --enable-ecdsa \
-        --enable-ed25519 \
-        --enable-ed448 \
-        --enable-sha3 \
-        --enable-quic && \
+        --enable-pie \
+        --enable-relro-now \
+        --enable-shared \
+        --enable-static \
+        --with-libevent \
+        --with-ssl=/usr && \
     make -j$(nproc) && \
     make install
 
-# Stage 2: Final minimal image
-FROM debian:stable-slim
-COPY --from=builder /usr/local /usr/local
+# ---------- Final Stage ----------
+FROM alpine:3.18
 
-ENV LD_LIBRARY_PATH=/usr/local/lib
-ENTRYPOINT ["/usr/local/sbin/unbound"]
-CMD ["-d"]
+RUN apk add --no-cache libevent openssl libcap
+
+COPY --from=builder /opt/unbound /opt/unbound
+COPY --from=builder /usr/local/lib/libngtcp2*.so* /usr/local/lib/
+COPY --from=builder /usr/local/lib/libnghttp3*.so* /usr/local/lib/
+COPY --from=builder /usr/local/lib/libev.so* /usr/local/lib/
+COPY --from=builder /usr/local/lib/libsfparse.so* /usr/local/lib/
+
+ENV LD_LIBRARY_PATH="/usr/local/lib"
+ENV PATH="/opt/unbound/sbin:$PATH"
+
+ENTRYPOINT ["unbound"]
+CMD ["-d", "-c", "/opt/unbound/etc/unbound/unbound.conf"]
