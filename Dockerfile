@@ -24,19 +24,16 @@ RUN apk add --no-cache \
 # ---------- Build sfparse ----------
 WORKDIR /build/sfparse
 RUN git clone https://github.com/ngtcp2/sfparse.git . && \
-    mkdir -p /tmp/sfparse-copy && \
-    cp sfparse.c /tmp/sfparse-copy/sfparse.c && \
-    cp sfparse.h /tmp/sfparse-copy/sfparse.h && \
-    autoreconf -fi && ./configure --prefix=/usr/local && make -j$(nproc) && make install
+    autoreconf -fi && \
+    ./configure --prefix=/usr/local && \
+    make -j$(nproc) && make install
 
 # ---------- Build nghttp3 ----------
 WORKDIR /build/nghttp3
 RUN git clone --branch ${NGHTTP3_VER} https://github.com/ngtcp2/nghttp3.git . && \
-    mkdir -p lib/sfparse && \
-    cp /tmp/sfparse-copy/sfparse.c lib/sfparse/sfparse.c && \
-    cp /tmp/sfparse-copy/sfparse.h lib/sfparse/sfparse.h && \
     autoreconf -fi && \
-    ./configure --prefix=/usr/local --enable-lib-only && \
+    # 设置 PKG_CONFIG_PATH，让 configure 自动找到 sfparse
+    PKG_CONFIG_PATH="/usr/local/lib/pkgconfig" ./configure --prefix=/usr/local --enable-lib-only && \
     make -j$(nproc) && make install
 
 # ---------- Build OpenSSL (quictls) ----------
@@ -52,7 +49,6 @@ RUN git clone --branch ${NGTCP2_VER} https://github.com/ngtcp2/ngtcp2.git . && \
     ./configure --prefix=/usr/local \
         PKG_CONFIG_PATH="${OPENSSL_DIR}/lib/pkgconfig" \
         LDFLAGS="-Wl,-rpath,${OPENSSL_DIR}/lib" \
-        CPPFLAGS="-I${OPENSSL_DIR}/include" \
         --with-openssl \
         --with-libnghttp3 \
         --enable-lib-only && \
