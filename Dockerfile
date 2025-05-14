@@ -62,7 +62,6 @@ RUN git clone --depth=1 -b release-1.19.3 https://github.com/NLnetLabs/unbound.g
         --with-libevent=/usr && \
     make -j$(nproc) && make install
 
----
 
 FROM alpine:3.19
 
