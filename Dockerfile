@@ -19,8 +19,7 @@ RUN apk add --no-cache \
     libcap \
     linux-headers \
     curl \
-    pkgconf \
-    pkg-config  # 确保安装 pkg-config
+    pkgconf
 
 # ---------- Build sfparse ----------
 WORKDIR /build/sfparse
@@ -85,7 +84,7 @@ RUN git clone https://github.com/NLnetLabs/unbound.git . && \
       --with-libngtcp2 \
       --with-libnghttp3 \
       --enable-dns-over-quic \
-      PKG_CONFIG_PATH="${OPENSSL_DIR}/lib/pkgconfig:/usr/local/lib/pkgconfig" \
+      PKG_CONFIG_PATH="${OPENSSL_DIR}/lib/pkgconfig" \
       LDFLAGS="-Wl,-rpath,${OPENSSL_DIR}/lib" && \
     make -j$(nproc) && make install
 
