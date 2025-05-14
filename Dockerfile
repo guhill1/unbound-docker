@@ -1,4 +1,7 @@
-FROM alpine:3.19 AS builder
+# =====================================
+# Stage 1: Build all dependencies
+# =====================================
+FROM alpine:3.21 AS builder
 
 # 安装构建依赖
 RUN apk add --no-cache \
@@ -8,76 +11,91 @@ RUN apk add --no-cache \
   libtool \
   git \
   cmake \
+  curl \
   libevent-dev \
   expat-dev \
   libsodium-dev \
   libcap \
   linux-headers \
-  curl \
-  openssl-dev \
-  pkgconf
-
-# 设置 include / lib 搜索路径（供 sfparse/nghttp3/ngtcp2/unbound 使用）
-ENV CFLAGS="-I/usr/local/include"
-ENV LDFLAGS="-L/usr/local/lib"
+  bash \
+  perl \
+  pkgconfig
 
 WORKDIR /build
 
-# 构建 quictls（支持 QUIC 的 OpenSSL 分支）
-RUN git clone --depth=1 --branch OpenSSL_1_1_1u+quic https://github.com/quictls/openssl.git && \
-    cd openssl && \
-    ./config --prefix=/usr/local --openssldir=/usr/local no-shared && \
-    make -j$(nproc) && \
-    make install_sw
+# -------------------------------------
+# 构建 quictls OpenSSL (QUIC-enabled)
+# -------------------------------------
+WORKDIR /build/openssl
+RUN git clone --depth 1 -b OpenSSL_1_1_1u+quic https://github.com/quictls/openssl.git . && \
+    ./config enable-tls1_3 --prefix=/usr/local --openssldir=/usr/local && \
+    make -j$(nproc) && make install_sw
 
-# 构建 sfparse
+ENV CFLAGS="-I/usr/local/include"
+ENV LDFLAGS="-L/usr/local/lib"
+
+# -------------------------------------
+# 构建 sfparse 并修复头文件路径
+# -------------------------------------
 WORKDIR /build/sfparse
-RUN git clone --depth=1 https://github.com/ngtcp2/sfparse.git . && \
+RUN git clone https://github.com/ngtcp2/sfparse.git . && \
     autoreconf -fi && \
     ./configure --prefix=/usr/local && \
-    make -j$(nproc) && \
-    make install
+    make -j$(nproc) && make install && \
+    mkdir -p /usr/local/include/sfparse && \
+    cp /usr/local/include/sfparse.h /usr/local/include/sfparse/sfparse.h
 
+# -------------------------------------
 # 构建 nghttp3
+# -------------------------------------
 WORKDIR /build/nghttp3
 RUN git clone --branch v1.9.0 https://github.com/ngtcp2/nghttp3.git . && \
     autoreconf -fi && \
     ./configure --prefix=/usr/local --enable-lib-only && \
-    make -j$(nproc) && \
-    make install
+    make -j$(nproc) && make install
 
+# -------------------------------------
 # 构建 ngtcp2
+# -------------------------------------
 WORKDIR /build/ngtcp2
 RUN git clone --branch v1.9.0 https://github.com/ngtcp2/ngtcp2.git . && \
     autoreconf -fi && \
-    ./configure --prefix=/usr/local --enable-lib-only \
-      --with-openssl --with-libnghttp3=/usr/local && \
-    make -j$(nproc) && \
-    make install
+    ./configure --prefix=/usr/local \
+        PKG_CONFIG_PATH="/usr/local/lib/pkgconfig" && \
+    make -j$(nproc) && make install
 
-# 构建 unbound（支持 DNS-over-QUIC）
+# -------------------------------------
+# 构建 Unbound 1.19.3
+# -------------------------------------
 WORKDIR /build/unbound
-RUN git clone --branch release-1.19.3 https://github.com/NLnetLabs/unbound.git . && \
-    ./autogen.sh && \
-    ./configure --prefix=/opt/unbound \
-      --with-ssl=/usr/local \
-      --with-libngtcp2=/usr/local \
-      --with-libnghttp3=/usr/local \
-      --enable-dns-over-quic \
-      --enable-dnscrypt \
-      --disable-static \
-      --enable-shared && \
-    make -j$(nproc) && \
-    make install
+RUN curl -LO https://www.nlnetlabs.nl/downloads/unbound/unbound-1.19.3.tar.gz && \
+    tar xzf unbound-1.19.3.tar.gz && \
+    cd unbound-1.19.3 && \
+    ./configure --prefix=/usr/local \
+        --with-ssl=/usr/local \
+        --with-libevent=/usr \
+        --enable-subnet \
+        --enable-dnscrypt \
+        --enable-cachedb \
+        --enable-tfo-client \
+        --enable-tfo-server \
+        --enable-quic \
+        CFLAGS="-I/usr/local/include" \
+        LDFLAGS="-L/usr/local/lib" && \
+    make -j$(nproc) && make install
 
-# 生产镜像（仅复制最终产物）
-FROM alpine:3.19 AS final
+# =====================================
+# Final runtime image
+# =====================================
+FROM alpine:3.21
 
-RUN apk add --no-cache libevent expat libsodium libcap openssl
+# 安装运行依赖
+RUN apk add --no-cache libevent libcap expat libsodium
 
-COPY --from=builder /opt/unbound /opt/unbound
+# 拷贝 Unbound 和所有库
+COPY --from=builder /usr/local /usr/local
 
-ENV PATH="/opt/unbound/sbin:$PATH"
+ENV PATH="/usr/local/sbin:$PATH"
 
-# 默认启动命令（你可以改成 CMD ["unbound", "-d"]）
-CMD ["unbound", "-V"]
+# 默认命令
+CMD ["unbound", "-d"]
