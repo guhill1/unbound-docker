@@ -43,7 +43,15 @@ RUN git clone --branch ${NGHTTP3_VER} https://github.com/ngtcp2/nghttp3.git . &&
 WORKDIR /build/quictls
 RUN git clone --depth 1 -b openssl-3.1.5+quic https://github.com/quictls/openssl.git . && \
     ./Configure enable-tls1_3 --prefix=${OPENSSL_DIR} linux-x86_64 && \
-    make -j$(nproc) && make install_sw
+    make -j$(nproc) && make install_sw && \
+    echo ">>> OpenSSL installed in ${OPENSSL_DIR}" && \
+    ls -l ${OPENSSL_DIR}/lib/pkgconfig && \
+    PKG_CONFIG_PATH="${OPENSSL_DIR}/lib/pkgconfig" pkg-config --modversion openssl || echo "pkg-config failed for openssl"
+
+# 设置环境变量，供后续构建阶段使用
+ENV PKG_CONFIG_PATH="${OPENSSL_DIR}/lib/pkgconfig"
+ENV LD_LIBRARY_PATH="${OPENSSL_DIR}/lib"
+ENV CPATH="${OPENSSL_DIR}/include"
 
 # ---------- Build ngtcp2 ----------
 WORKDIR /build/ngtcp2
