@@ -1,67 +1,85 @@
+# ---------- Stage 1: Build environment ----------
 FROM alpine:3.21 AS builder
 
+ENV OPENSSL_DIR=/opt/quictls \
+    NGHTTP3_VER=v1.9.0 \
+    NGTCP2_VER=v1.9.0
+
+# 安装构建依赖
 RUN apk add --no-cache \
-    build-base autoconf automake libtool git cmake \
-    libevent-dev expat-dev libsodium-dev libcap linux-headers curl pkgconf
+    build-base \
+    autoconf \
+    automake \
+    libtool \
+    git \
+    cmake \
+    libevent-dev \
+    expat-dev \
+    libsodium-dev \
+    libcap \
+    linux-headers \
+    curl \
+    pkgconf
 
-WORKDIR /build
-
-# ===== Build quictls (OpenSSL with QUIC support) =====
-RUN git clone --depth=1 -b OpenSSL_1_1_1u+quic https://github.com/quictls/openssl.git && \
-    cd openssl && \
-    ./config --prefix=/usr/local --openssldir=/usr/local/ssl enable-tls1_3 enable-ec_nistp_64_gcc_128 no-shared && \
-    make -j$(nproc) && make install_sw
-
-ENV PATH="/usr/local/bin:$PATH"
-ENV LD_LIBRARY_PATH="/usr/local/lib"
-ENV PKG_CONFIG_PATH="/usr/local/lib/pkgconfig"
-
-# ===== Build sfparse =====
+# ---------- Build sfparse ----------
 WORKDIR /build/sfparse
 RUN git clone https://github.com/ngtcp2/sfparse.git . && \
+    mkdir -p /tmp/sfparse-copy && \
+    cp sfparse.c /tmp/sfparse-copy/sfparse.c && \
+    cp sfparse.h /tmp/sfparse-copy/sfparse.h && \
     autoreconf -fi && ./configure --prefix=/usr/local && make -j$(nproc) && make install
 
-# ===== Build nghttp3 =====
+# ---------- Build nghttp3 ----------
 WORKDIR /build/nghttp3
-RUN git clone --branch v1.9.0 https://github.com/ngtcp2/nghttp3.git . && \
+RUN git clone --branch ${NGHTTP3_VER} https://github.com/ngtcp2/nghttp3.git . && \
     mkdir -p lib/sfparse && \
-    cp /usr/local/include/sfparse.h lib/sfparse/sfparse.h && \
-    cp /usr/local/lib/libsfparse.a . && \
-    # 若 sfparse.c 存在，复制它；否则跳过
-    test -f /usr/local/src/sfparse/sfparse.c && cp /usr/local/src/sfparse/sfparse.c lib/sfparse/sfparse.c || true && \
+    cp /tmp/sfparse-copy/sfparse.c lib/sfparse/sfparse.c && \
+    cp /tmp/sfparse-copy/sfparse.h lib/sfparse/sfparse.h && \
     autoreconf -fi && \
     ./configure --prefix=/usr/local --enable-lib-only && \
     make -j$(nproc) && make install
 
-# ===== Build ngtcp2 =====
+# ---------- Build OpenSSL (quictls) ----------
+WORKDIR /build/quictls
+RUN git clone --depth 1 -b openssl-3.1.5+quic https://github.com/quictls/openssl.git . && \
+    ./Configure enable-tls1_3 --prefix=${OPENSSL_DIR} linux-x86_64 && \
+    make -j$(nproc) && make install_sw
+
+# ---------- Build ngtcp2 ----------
 WORKDIR /build/ngtcp2
-RUN git clone --branch v1.6.0 https://github.com/ngtcp2/ngtcp2.git . && \
+RUN git clone --branch ${NGTCP2_VER} https://github.com/ngtcp2/ngtcp2.git . && \
     autoreconf -fi && \
     ./configure --prefix=/usr/local \
-        --with-openssl=/usr/local \
-        --with-nghttp3=/usr/local \
-        PKG_CONFIG_PATH=$PKG_CONFIG_PATH && \
+        PKG_CONFIG_PATH="${OPENSSL_DIR}/lib/pkgconfig" \
+        LDFLAGS="-Wl,-rpath,${OPENSSL_DIR}/lib" \
+        --with-openssl \
+        --with-libnghttp3 \
+        --enable-lib-only && \
     make -j$(nproc) && make install
 
-# ===== Build Unbound with DNS-over-QUIC =====
+# ---------- Build Unbound ----------
 WORKDIR /build/unbound
-RUN git clone --branch release-1.19.3 https://github.com/NLnetLabs/unbound.git . && \
-    autoreconf -fi && \
-    ./configure --prefix=/opt/unbound \
-        --with-ssl=/usr/local \
-        --with-libevent \
-        --with-libnghttp3=/usr/local \
-        --with-libngtcp2=/usr/local \
-        --enable-dns-over-quic && \
+RUN git clone https://github.com/NLnetLabs/unbound.git . && \
+    git checkout release-1.19.3 && \
+    ./configure \
+      --prefix=/usr/local \
+      --with-libevent \
+      --with-libngtcp2 \
+      --with-libnghttp3 \
+      --enable-dns-over-quic \
+      PKG_CONFIG_PATH="${OPENSSL_DIR}/lib/pkgconfig" \
+      LDFLAGS="-Wl,-rpath,${OPENSSL_DIR}/lib" && \
     make -j$(nproc) && make install
 
-# ===== Runtime stage =====
+# ---------- Stage 2: Final image ----------
 FROM alpine:3.21
-RUN apk add --no-cache libevent openssl libsodium expat
 
-COPY --from=builder /opt/unbound /opt/unbound
-COPY unbound.conf /etc/unbound/unbound.conf
+RUN apk add --no-cache libevent libcap expat libsodium
 
-ENV PATH="/opt/unbound/sbin:$PATH"
+COPY --from=builder /usr/local /usr/local
+COPY --from=builder /opt/quictls /opt/quictls
 
-ENTRYPOINT ["unbound", "-d", "-c", "/etc/unbound/unbound.conf"]
+ENV PATH=/usr/local/sbin:$PATH
+
+EXPOSE 853/udp 853/tcp 8853/udp
+ENTRYPOINT ["/usr/local/sbin/unbound", "-d", "-c", "/etc/unbound/unbound.conf"]
