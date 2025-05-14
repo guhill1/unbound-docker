@@ -1,76 +1,107 @@
-FROM alpine:3.19 AS builder
+# Stage 1: Build environment
+FROM ubuntu:22.04 AS builder
 
-# 安装构建工具和依赖
-RUN apk add --no-cache \
-    build-base \
-    autoconf \
-    automake \
-    libtool \
-    pkgconfig \
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y \
+    build-essential \
     git \
     wget \
     curl \
-    libevent-dev \
-    expat-dev \
-    libsodium-dev \
-    linux-headers \
-    bash \
+    ca-certificates \
     cmake \
-    doxygen
+    ninja-build \
+    pkg-config \
+    libtool \
+    autoconf \
+    automake \
+    libevent-dev \
+    libexpat1-dev \
+    libssl-dev \
+    libsodium-dev
 
-WORKDIR /
-
-### 1. Build OpenSSL (QUIC-enabled) from quictls
-RUN git clone --depth=1 -b OpenSSL_1_1_1w+quic https://github.com/quictls/openssl.git && \
-    cd openssl && \
-    ./config no-shared --prefix=/usr/local && \
-    make -j$(nproc) && make install_sw
+# =====================
+# Build quictls (OpenSSL with QUIC support)
+# =====================
+WORKDIR /quictls
+RUN git clone --depth=1 -b OpenSSL_1_1_1u+quic https://github.com/quictls/openssl.git
+WORKDIR /quictls/openssl
+RUN ./config no-shared --prefix=/usr/local && make -j$(nproc) && make install_sw
 
 ENV PATH="/usr/local/bin:$PATH"
-ENV LD_LIBRARY_PATH="/usr/local/lib"
-ENV PKG_CONFIG_PATH="/usr/local/lib/pkgconfig"
+ENV LD_LIBRARY_PATH="/usr/local/lib:$LD_LIBRARY_PATH"
+ENV PKG_CONFIG_PATH="/usr/local/lib/pkgconfig:$PKG_CONFIG_PATH"
+ENV CFLAGS="-I/usr/local/include"
+ENV LDFLAGS="-L/usr/local/lib"
 
-### 2. Build sfparse (for nghttp3)
-RUN git clone --depth=1 https://github.com/ngtcp2/sfparse.git && \
-    cd sfparse && \
-    cmake -B build -DCMAKE_INSTALL_PREFIX=/usr/local && \
+# =====================
+# Build sfparse
+# =====================
+WORKDIR /build
+RUN git clone --depth=1 https://github.com/ngtcp2/sfparse.git
+WORKDIR /build/sfparse
+RUN cmake -B build -DCMAKE_BUILD_TYPE=Release && \
     cmake --build build -j$(nproc) && \
-    cmake --install build
+    cmake --install build --prefix /usr/local
 
-### 3. Build nghttp3
-RUN git clone --depth=1 https://github.com/ngtcp2/nghttp3.git && \
-    cd nghttp3 && \
-    autoreconf -i && \
+# =====================
+# Build nghttp3
+# =====================
+WORKDIR /build
+RUN git clone --depth=1 https://github.com/ngtcp2/nghttp3.git
+WORKDIR /build/nghttp3
+RUN autoreconf -i && \
     ./configure --prefix=/usr/local && \
-    make -j$(nproc) && make install
+    make -j$(nproc) && \
+    make install
 
-### 4. Build ngtcp2
-RUN git clone --depth=1 https://github.com/ngtcp2/ngtcp2.git && \
-    cd ngtcp2 && \
-    autoreconf -i && \
-    ./configure --prefix=/usr/local --enable-lib-only && \
-    make -j$(nproc) && make install
-
-### 5. Build Unbound with QUIC support
-RUN git clone --depth=1 -b release-1.19.3 https://github.com/NLnetLabs/unbound.git && \
-    cd unbound && \
-    autoreconf -fi && \
+# =====================
+# Build ngtcp2
+# =====================
+WORKDIR /build
+RUN git clone --depth=1 https://github.com/ngtcp2/ngtcp2.git
+WORKDIR /build/ngtcp2
+RUN autoreconf -i && \
     ./configure --prefix=/usr/local \
-        --enable-dns-over-tls \
-        --enable-dnscrypt \
-        --with-ssl=/usr/local \
-        --with-libevent=/usr && \
-    make -j$(nproc) && make install
+    --with-openssl=/usr/local \
+    --with-nghttp3=/usr/local && \
+    make -j$(nproc) && \
+    make install
 
+# =====================
+# Build Unbound with DoQ support
+# =====================
+WORKDIR /build
+RUN wget https://www.nlnetlabs.nl/downloads/unbound/unbound-1.19.3.tar.gz && \
+    tar -xzf unbound-1.19.3.tar.gz
+WORKDIR /build/unbound-1.19.3
+RUN ./configure --prefix=/opt/unbound \
+    --with-libevent \
+    --with-ssl=/usr/local \
+    --enable-dnscrypt \
+    --enable-dnstap \
+    --enable-tfo-client \
+    --enable-tfo-server \
+    --enable-subnet \
+    --enable-cachedb \
+    --enable-pie \
+    --enable-relro-now \
+    --enable-dns-over-quic && \
+    make -j$(nproc) && \
+    make install
 
-FROM alpine:3.19
+# Stage 2: Runtime image
+FROM ubuntu:22.04 AS runtime
 
-RUN apk add --no-cache libevent libsodium expat
+COPY --from=builder /opt/unbound /opt/unbound
 
-# 拷贝已构建的 Unbound 和依赖库
-COPY --from=builder /usr/local /usr/local
+ENV PATH="/opt/unbound/sbin:$PATH"
 
-ENV PATH="/usr/local/sbin:/usr/local/bin:$PATH"
-ENV LD_LIBRARY_PATH="/usr/local/lib"
+# Copy necessary libraries from builder
+COPY --from=builder /usr/local/lib /usr/local/lib
+COPY --from=builder /usr/local/include /usr/local/include
 
-CMD ["unbound", "-d"]
+# Make sure dynamic linker finds the libraries
+ENV LD_LIBRARY_PATH="/usr/local/lib:$LD_LIBRARY_PATH"
+
+CMD ["unbound", "-d", "-c", "/opt/unbound/etc/unbound/unbound.conf"]
