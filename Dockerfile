@@ -1,76 +1,68 @@
-# ---------- Builder stage ----------
-FROM alpine:3.19 AS builder
+# -------- Stage 1: Build everything --------
+FROM ubuntu:22.04 AS builder
 
-RUN apk add --no-cache \
-    build-base \
-    autoconf \
-    automake \
-    libtool \
-    git \
-    wget \
-    curl \
-    cmake \
-    perl \
-    linux-headers \
-    libevent-dev \
-    expat-dev \
-    libsodium-dev \
-    pkgconfig \
-    python3 \
-    bash
+ENV DEBIAN_FRONTEND=noninteractive
 
-WORKDIR /build
+RUN apt update && apt install -y \
+    build-essential \
+    autoconf automake libtool pkg-config \
+    git curl ca-certificates \
+    libevent-dev libexpat1-dev \
+    libyaml-dev libsodium-dev
 
-# ---------- Build OpenSSL with QUIC support (quictls) ----------
+# ---- Install OpenSSL (quictls branch) ----
 WORKDIR /build/openssl
-RUN git clone --branch OpenSSL_1_1_1w+quic --depth=1 https://github.com/quictls/openssl.git . && \
-    ./config --prefix=/usr/local/openssl --libdir=lib no-shared enable-tls1_3 && \
-    make -j$(nproc) && \
-    make install_sw
+RUN git clone --depth=1 -b OpenSSL_1_1_1w+quic https://github.com/quictls/openssl.git . && \
+    ./config --prefix=/usr/local --openssldir=/usr/local/ssl && \
+    make -j$(nproc) && make install
 
-ENV PATH="/usr/local/openssl/bin:$PATH"
-ENV PKG_CONFIG_PATH="/usr/local/openssl/lib/pkgconfig"
-ENV LD_LIBRARY_PATH="/usr/local/openssl/lib"
+ENV PATH="/usr/local/bin:$PATH"
+ENV LD_LIBRARY_PATH="/usr/local/lib"
 
-# ---------- Build nghttp3 (v1.9.0) ----------
+# ---- Build and install sfparse ----
+WORKDIR /build/sfparse
+RUN git clone https://github.com/ngtcp2/sfparse.git . && \
+    autoreconf -i && ./configure --prefix=/usr/local && \
+    make -j$(nproc) && make install
+
+# ---- Build and install nghttp3 ----
 WORKDIR /build/nghttp3
 RUN git clone --branch v1.9.0 https://github.com/ngtcp2/nghttp3.git . && \
     autoreconf -fi && \
-    ./configure --prefix=/usr/local --enable-lib-only && \
-    make -j$(nproc) && \
-    make install
+    ./configure --prefix=/usr/local && \
+    make -j$(nproc) && make install
 
-# ---------- Build ngtcp2 (v1.6.0) ----------
+# ---- Build and install ngtcp2 ----
 WORKDIR /build/ngtcp2
-RUN git clone --branch v1.6.0 https://github.com/ngtcp2/ngtcp2.git . && \
+RUN git clone --branch v1.9.0 https://github.com/ngtcp2/ngtcp2.git . && \
     autoreconf -fi && \
     ./configure --prefix=/usr/local \
-        --with-openssl=/usr/local/openssl \
+        PKG_CONFIG_PATH="/usr/local/lib/pkgconfig" \
+        --with-openssl=/usr/local \
         --with-libnghttp3=/usr/local \
-        PKG_CONFIG_PATH="/usr/local/lib/pkgconfig" && \
-    make -j$(nproc) && \
-    make install
+        --with-libsfparse=/usr/local && \
+    make -j$(nproc) && make install
 
-# ---------- Build Unbound (v1.19.3) ----------
+# ---- Build and install Unbound (QUIC support) ----
 WORKDIR /build/unbound
-RUN git clone --branch release-1.19.3 https://github.com/NLnetLabs/unbound.git . && \
-    ./autogen.sh && \
+RUN git clone https://github.com/NLnetLabs/unbound.git . && \
+    git checkout release-1.19.3 && \
+    autoreconf -fi && \
     ./configure --prefix=/usr/local \
+        --enable-dnscrypt \
+        --enable-dnstap \
+        --enable-subnet \
         --with-libevent \
-        --with-libnghttp3=/usr/local \
+        --with-ssl=/usr/local \
         --with-libngtcp2=/usr/local \
-        --with-ssl=/usr/local/openssl && \
-    make -j$(nproc) && \
-    make install
+        --with-libnghttp3=/usr/local && \
+    make -j$(nproc) && make install
 
-# ---------- Final stage ----------
-FROM alpine:3.19
-
-RUN apk add --no-cache libevent libsodium expat
+# -------- Stage 2: Minimal runtime image --------
+FROM debian:bullseye-slim
 
 COPY --from=builder /usr/local /usr/local
-COPY --from=builder /usr/local/openssl /usr/local/openssl
-
-ENV LD_LIBRARY_PATH="/usr/local/lib:/usr/local/openssl/lib"
+ENV LD_LIBRARY_PATH="/usr/local/lib"
 
 ENTRYPOINT ["/usr/local/sbin/unbound"]
+CMD ["-d"]
