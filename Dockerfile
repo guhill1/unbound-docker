@@ -1,83 +1,75 @@
-# Stage 1: Build dependencies
+# Stage 1: Build environment
 FROM ubuntu:20.04 AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+# Install dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \
-    wget \
     git \
+    curl \
+    ca-certificates \
+    wget \
     libtool \
     autoconf \
     automake \
     pkg-config \
     cmake \
-    gcc \
-    g++ \
-    make \
-    curl \
-    zlib1g-dev \
-    ca-certificates \
     libevent-dev \
     libexpat1-dev \
-    libsodium-dev
+    libsodium-dev \
+    zlib1g-dev
 
-# OpenSSL 3.1.5 (QUIC supported)
-RUN wget https://www.openssl.org/source/openssl-3.1.5.tar.gz && \
-    tar -xf openssl-3.1.5.tar.gz && \
-    cd openssl-3.1.5 && \
-    ./Configure linux-x86_64 enable-tls1_3 enable-quic no-shared --prefix=/usr/local && \
+# Install OpenSSL 3.1.5 (QUIC-supported from quictls)
+RUN git clone --depth=1 -b openssl-3.1.5+quic https://github.com/quictls/openssl.git && \
+    cd openssl && \
+    ./Configure linux-x86_64 no-shared --prefix=/usr/local && \
     make -j$(nproc) && make install_sw
 
-ENV PATH="/usr/local/bin:$PATH"
-ENV LD_LIBRARY_PATH="/usr/local/lib"
-ENV PKG_CONFIG_PATH="/usr/local/lib/pkgconfig"
+ENV PKG_CONFIG_PATH="/usr/local/lib/pkgconfig:$PKG_CONFIG_PATH"
+ENV LD_LIBRARY_PATH="/usr/local/lib:$LD_LIBRARY_PATH"
 
-# Clone and prepare sfparse (needed by nghttp3)
-RUN git clone https://github.com/h2o/sfparse.git /tmp/sfparse && \
-    mkdir -p /tmp/nghttp3/ext/sfparse && \
-    cp /tmp/sfparse/include/sfparse.h /tmp/nghttp3/ext/sfparse/ && \
-    cp /tmp/sfparse/sfparse.c /tmp/nghttp3/ext/sfparse/
-
-# Clone and build nghttp3 (QUIC lib)
-RUN git clone --depth=1 https://github.com/ngtcp2/nghttp3.git /tmp/nghttp3 && \
-    cd /tmp/nghttp3 && \
+# Build nghttp3
+RUN git clone --depth=1 https://github.com/ngtcp2/nghttp3.git && \
+    cd nghttp3 && \
     autoreconf -i && \
     ./configure --prefix=/usr/local && \
     make -j$(nproc) && make install
 
-# Clone and build ngtcp2 (depends on nghttp3 & OpenSSL)
-RUN git clone --depth=1 https://github.com/ngtcp2/ngtcp2.git /tmp/ngtcp2 && \
-    cd /tmp/ngtcp2 && \
+# Build ngtcp2
+RUN git clone --depth=1 https://github.com/ngtcp2/ngtcp2.git && \
+    cd ngtcp2 && \
     autoreconf -i && \
     ./configure --prefix=/usr/local \
-        --with-openssl \
-        --with-libnghttp3=/usr/local && \
+        --with-openssl=/usr/local \
+        --with-libnghttp3=/usr/local \
+        PKG_CONFIG_PATH="/usr/local/lib/pkgconfig" && \
     make -j$(nproc) && make install
 
-# Build Unbound with QUIC support
-RUN wget https://nlnetlabs.nl/downloads/unbound/unbound-1.19.3.tar.gz && \
-    tar -xzf unbound-1.19.3.tar.gz && \
-    cd unbound-1.19.3 && \
+# Build Unbound 1.19.3
+RUN git clone --branch release-1.19.3 --depth=1 https://github.com/NLnetLabs/unbound.git && \
+    cd unbound && \
+    autoreconf -fi && \
     ./configure --prefix=/usr/local \
+        --with-ssl=/usr/local \
         --with-libevent \
         --with-libnghttp3=/usr/local \
-        --with-libngtcp2=/usr/local \
-        --with-ssl=/usr/local && \
+        --with-libngtcp2=/usr/local && \
     make -j$(nproc) && make install
 
-# Stage 2: Runtime
+# Stage 2: Runtime environment
 FROM ubuntu:20.04
+
+ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y \
     libevent-2.1-7 \
     libexpat1 \
-    libsodium23 \
-    ca-certificates
+    ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /usr/local /usr/local
 
-ENV PATH="/usr/local/sbin:/usr/local/bin:$PATH"
-ENV LD_LIBRARY_PATH="/usr/local/lib"
-
-CMD ["unbound", "-d"]
+# Set default command
+ENTRYPOINT ["/usr/local/sbin/unbound"]
+CMD ["-d", "-v"]
