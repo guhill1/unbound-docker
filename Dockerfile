@@ -1,62 +1,87 @@
-# ---------- 基础镜像 ----------
+# ========== Stage 1: Build all dependencies ==========
 FROM alpine:3.21 AS builder
 
-# 安装构建依赖项
+# 安装构建工具和依赖
 RUN apk add --no-cache \
-    build-base \
-    autoconf \
-    automake \
-    libtool \
-    git \
-    cmake \
-    libevent-dev \
-    expat-dev \
-    libsodium-dev \
-    libcap \
-    linux-headers \
-    curl \
-    openssl-dev
+  build-base \
+  autoconf \
+  automake \
+  libtool \
+  git \
+  cmake \
+  linux-headers \
+  curl \
+  libevent-dev \
+  expat-dev \
+  libsodium-dev \
+  bash \
+  pkgconf
 
-# ---------- 构建 sfparse ----------
+WORKDIR /build
+
+# --------- Build OpenSSL (quictls branch) ------------
+WORKDIR /build/openssl
+RUN git clone --depth=1 --branch openssl-3.1.5 https://github.com/quictls/openssl.git . && \
+    ./config --prefix=/usr/local --openssldir=/usr/local/ssl no-shared && \
+    make -j$(nproc) && make install_sw
+
+ENV PATH="/usr/local/bin:$PATH"
+ENV LD_LIBRARY_PATH="/usr/local/lib"
+
+# --------- Build sfparse ----------
 WORKDIR /build/sfparse
 RUN git clone https://github.com/ngtcp2/sfparse.git . && \
     autoreconf -fi && \
     ./configure --prefix=/usr/local && \
-    make -j$(nproc) && \
-    make install
+    make -j$(nproc) && make install
 
-# ---------- 构建 nghttp3 ----------
+# ✅ 检查 sfparse 是否成功被识别
+RUN pkg-config --modversion sfparse || (echo "sfparse not found via pkg-config" && exit 1)
+
+# --------- Build nghttp3 ----------
 WORKDIR /build/nghttp3
-RUN git clone --branch v1.9.0 https://github.com/ngtcp2/nghttp3.git . && \
-    # 创建 sfparse 目录并将 sfparse.h 和 sfparse.c 拷贝到正确位置
-    mkdir -p lib/sfparse && \
-    cp /usr/local/src/sfparse/sfparse.c lib/sfparse/sfparse.c && \
-    cp /usr/local/include/sfparse.h /build/nghttp3/lib/sfparse/sfparse.h && \
+RUN git clone https://github.com/ngtcp2/nghttp3.git . && \
     autoreconf -fi && \
     ./configure --prefix=/usr/local --enable-lib-only && \
     make -j$(nproc) && make install
 
-# ---------- 构建 ngtcp2 ----------
+# --------- Build ngtcp2 ----------
 WORKDIR /build/ngtcp2
-RUN git clone --branch v1.47.0 https://github.com/ngtcp2/ngtcp2.git . && \
+RUN git clone https://github.com/ngtcp2/ngtcp2.git . && \
     autoreconf -fi && \
-    ./configure --prefix=/usr/local --enable-lib-only && \
-    make -j$(nproc) && \
-    make install
+    ./configure --prefix=/usr/local \
+      PKG_CONFIG_PATH="/usr/local/lib/pkgconfig" \
+      --with-openssl && \
+    make -j$(nproc) && make install
 
-# ---------- 清理 ----------
+# --------- Build Unbound ----------
+WORKDIR /build/unbound
+RUN curl -LO https://nlnetlabs.nl/downloads/unbound/unbound-1.19.3.tar.gz && \
+    tar xzf unbound-1.19.3.tar.gz && \
+    cd unbound-1.19.3 && \
+    ./configure --prefix=/usr/local \
+      --with-ssl=/usr/local \
+      --with-libevent \
+      --enable-dnscrypt \
+      --enable-dnstap \
+      --enable-subnet \
+      --enable-tfo-client \
+      --enable-ecdsa \
+      --enable-ed25519 \
+      --enable-dns-over-tls \
+      --enable-dns-over-https \
+      --enable-dns-over-quic \
+      PKG_CONFIG_PATH="/usr/local/lib/pkgconfig" && \
+    make -j$(nproc) && make install
+
+# ========== Stage 2: Final image ==========
 FROM alpine:3.21
-RUN apk add --no-cache \
-    openssl \
-    libsodium \
-    libevent \
-    expat
 
-# 复制构建好的文件到新的镜像
+RUN apk add --no-cache libevent openssl libsodium expat
+
 COPY --from=builder /usr/local /usr/local
 
-# 设置工作目录
-WORKDIR /app
+ENV PATH="/usr/local/sbin:/usr/local/bin:$PATH"
 
-# 默认启动命令
-CMD ["sh"]
+ENTRYPOINT ["unbound"]
+CMD ["-d", "-c", "/etc/unbound/unbound.conf"]
