@@ -1,75 +1,79 @@
-# Stage 1: Build environment
-FROM ubuntu:20.04 AS builder
+# Stage 1: Build everything
+FROM alpine:3.19 AS builder
 
-ENV DEBIAN_FRONTEND=noninteractive
-
-# Install dependencies
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    git \
-    curl \
-    ca-certificates \
-    wget \
-    libtool \
+RUN apk add --no-cache \
+    build-base \
     autoconf \
     automake \
-    pkg-config \
-    cmake \
+    libtool \
+    pkgconfig \
+    git \
+    wget \
+    curl \
     libevent-dev \
-    libexpat1-dev \
+    libexpat-dev \
     libsodium-dev \
-    zlib1g-dev
+    linux-headers \
+    bash \
+    cmake
 
-# Install OpenSSL 3.1.5 (QUIC-supported from quictls)
-RUN git clone --depth=1 -b openssl-3.1.5+quic https://github.com/quictls/openssl.git && \
-    cd openssl && \
-    ./Configure linux-x86_64 no-shared --prefix=/usr/local && \
-    make -j$(nproc) && make install_sw
+WORKDIR /build
+
+# Build sfparse
+RUN git clone https://github.com/h2o/sfparse.git && \
+    cd sfparse && \
+    cmake -S . -B build && \
+    cmake --build build && \
+    cmake --install build --prefix /usr/local
 
 ENV PKG_CONFIG_PATH="/usr/local/lib/pkgconfig:$PKG_CONFIG_PATH"
 ENV LD_LIBRARY_PATH="/usr/local/lib:$LD_LIBRARY_PATH"
 
+# Build OpenSSL (quictls version, supports QUIC)
+RUN git clone --depth=1 -b OpenSSL_1_1_1q+quic https://github.com/quictls/openssl.git && \
+    cd openssl && \
+    ./config enable-tls1_3 no-shared --prefix=/usr/local && \
+    make -j$(nproc) && make install_sw
+
 # Build nghttp3
-RUN git clone --depth=1 https://github.com/ngtcp2/nghttp3.git && \
+RUN git clone https://github.com/ngtcp2/nghttp3.git && \
     cd nghttp3 && \
     autoreconf -i && \
     ./configure --prefix=/usr/local && \
     make -j$(nproc) && make install
 
 # Build ngtcp2
-RUN git clone --depth=1 https://github.com/ngtcp2/ngtcp2.git && \
+RUN git clone https://github.com/ngtcp2/ngtcp2.git && \
     cd ngtcp2 && \
     autoreconf -i && \
-    ./configure --prefix=/usr/local \
+    ./configure \
+        --prefix=/usr/local \
         --with-openssl=/usr/local \
-        --with-libnghttp3=/usr/local \
-        PKG_CONFIG_PATH="/usr/local/lib/pkgconfig" && \
+        --with-nghttp3=/usr/local && \
     make -j$(nproc) && make install
 
-# Build Unbound 1.19.3
-RUN git clone --branch release-1.19.3 --depth=1 https://github.com/NLnetLabs/unbound.git && \
+# Build Unbound with QUIC
+RUN git clone https://github.com/NLnetLabs/unbound.git && \
     cd unbound && \
-    autoreconf -fi && \
-    ./configure --prefix=/usr/local \
-        --with-ssl=/usr/local \
+    git checkout release-1.19.3 && \
+    ./autogen.sh && \
+    ./configure \
+        --enable-dns-over-tls \
+        --enable-dns-over-https \
+        --enable-dnscrypt \
+        --enable-ecdsa \
+        --enable-event-api \
+        --enable-subnet \
         --with-libevent \
-        --with-libnghttp3=/usr/local \
-        --with-libngtcp2=/usr/local && \
+        --with-ssl=/usr/local && \
     make -j$(nproc) && make install
 
-# Stage 2: Runtime environment
-FROM ubuntu:20.04
+# Stage 2: Runtime
+FROM alpine:3.19
 
-ENV DEBIAN_FRONTEND=noninteractive
-
-RUN apt-get update && apt-get install -y \
-    libevent-2.1-7 \
-    libexpat1 \
-    ca-certificates && \
-    rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache libevent libgcc libsodium expat
 
 COPY --from=builder /usr/local /usr/local
 
-# Set default command
 ENTRYPOINT ["/usr/local/sbin/unbound"]
-CMD ["-d", "-v"]
+CMD ["-d"]
