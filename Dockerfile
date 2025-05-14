@@ -1,6 +1,6 @@
-# Stage 1: Build everything
 FROM alpine:3.19 AS builder
 
+# 安装构建工具和依赖
 RUN apk add --no-cache \
     build-base \
     autoconf \
@@ -11,69 +11,67 @@ RUN apk add --no-cache \
     wget \
     curl \
     libevent-dev \
-    libexpat-dev \
+    expat-dev \
     libsodium-dev \
     linux-headers \
     bash \
-    cmake
+    cmake \
+    doxygen
 
-WORKDIR /build
+WORKDIR /
 
-# Build sfparse
-RUN git clone https://github.com/h2o/sfparse.git && \
-    cd sfparse && \
-    cmake -S . -B build && \
-    cmake --build build && \
-    cmake --install build --prefix /usr/local
-
-ENV PKG_CONFIG_PATH="/usr/local/lib/pkgconfig:$PKG_CONFIG_PATH"
-ENV LD_LIBRARY_PATH="/usr/local/lib:$LD_LIBRARY_PATH"
-
-# Build OpenSSL (quictls version, supports QUIC)
-RUN git clone --depth=1 -b OpenSSL_1_1_1q+quic https://github.com/quictls/openssl.git && \
+### 1. Build OpenSSL (QUIC-enabled) from quictls
+RUN git clone --depth=1 -b OpenSSL_1_1_1w+quic https://github.com/quictls/openssl.git && \
     cd openssl && \
-    ./config enable-tls1_3 no-shared --prefix=/usr/local && \
+    ./config no-shared --prefix=/usr/local && \
     make -j$(nproc) && make install_sw
 
-# Build nghttp3
-RUN git clone https://github.com/ngtcp2/nghttp3.git && \
+ENV PATH="/usr/local/bin:$PATH"
+ENV LD_LIBRARY_PATH="/usr/local/lib"
+ENV PKG_CONFIG_PATH="/usr/local/lib/pkgconfig"
+
+### 2. Build sfparse (for nghttp3)
+RUN git clone --depth=1 https://github.com/ngtcp2/sfparse.git && \
+    cd sfparse && \
+    cmake -B build -DCMAKE_INSTALL_PREFIX=/usr/local && \
+    cmake --build build -j$(nproc) && \
+    cmake --install build
+
+### 3. Build nghttp3
+RUN git clone --depth=1 https://github.com/ngtcp2/nghttp3.git && \
     cd nghttp3 && \
     autoreconf -i && \
     ./configure --prefix=/usr/local && \
     make -j$(nproc) && make install
 
-# Build ngtcp2
-RUN git clone https://github.com/ngtcp2/ngtcp2.git && \
+### 4. Build ngtcp2
+RUN git clone --depth=1 https://github.com/ngtcp2/ngtcp2.git && \
     cd ngtcp2 && \
     autoreconf -i && \
-    ./configure \
-        --prefix=/usr/local \
-        --with-openssl=/usr/local \
-        --with-nghttp3=/usr/local && \
+    ./configure --prefix=/usr/local --enable-lib-only && \
     make -j$(nproc) && make install
 
-# Build Unbound with QUIC
-RUN git clone https://github.com/NLnetLabs/unbound.git && \
+### 5. Build Unbound with QUIC support
+RUN git clone --depth=1 -b release-1.19.3 https://github.com/NLnetLabs/unbound.git && \
     cd unbound && \
-    git checkout release-1.19.3 && \
-    ./autogen.sh && \
-    ./configure \
+    autoreconf -fi && \
+    ./configure --prefix=/usr/local \
         --enable-dns-over-tls \
-        --enable-dns-over-https \
         --enable-dnscrypt \
-        --enable-ecdsa \
-        --enable-event-api \
-        --enable-subnet \
-        --with-libevent \
-        --with-ssl=/usr/local && \
+        --with-ssl=/usr/local \
+        --with-libevent=/usr && \
     make -j$(nproc) && make install
 
-# Stage 2: Runtime
+---
+
 FROM alpine:3.19
 
-RUN apk add --no-cache libevent libgcc libsodium expat
+RUN apk add --no-cache libevent libsodium expat
 
+# 拷贝已构建的 Unbound 和依赖库
 COPY --from=builder /usr/local /usr/local
 
-ENTRYPOINT ["/usr/local/sbin/unbound"]
-CMD ["-d"]
+ENV PATH="/usr/local/sbin:/usr/local/bin:$PATH"
+ENV LD_LIBRARY_PATH="/usr/local/lib"
+
+CMD ["unbound", "-d"]
