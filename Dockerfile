@@ -1,9 +1,6 @@
-FROM alpine:latest AS builder
+FROM alpine:3.19 AS builder
 
-ENV CFLAGS="-I/usr/local/include"
-ENV LDFLAGS="-L/usr/local/lib"
-ENV PKG_CONFIG_PATH="/usr/local/lib/pkgconfig"
-
+# 安装构建依赖
 RUN apk add --no-cache \
   build-base \
   autoconf \
@@ -12,67 +9,75 @@ RUN apk add --no-cache \
   git \
   cmake \
   libevent-dev \
-  libexpat-dev \
+  expat-dev \
   libsodium-dev \
   libcap \
   linux-headers \
   curl \
-  openssl-dev
+  openssl-dev \
+  pkgconf
+
+# 设置 include / lib 搜索路径（供 sfparse/nghttp3/ngtcp2/unbound 使用）
+ENV CFLAGS="-I/usr/local/include"
+ENV LDFLAGS="-L/usr/local/lib"
 
 WORKDIR /build
 
-# === Build and install quictls OpenSSL ===
-RUN git clone --depth=1 -b OpenSSL_1_1_1w+quic https://github.com/quictls/openssl.git
-WORKDIR /build/openssl
-RUN ./config --prefix=/usr/local --openssldir=/usr/local/ssl no-shared && \
-    make -j$(nproc) && make install_sw
+# 构建 quictls（支持 QUIC 的 OpenSSL 分支）
+RUN git clone --depth=1 --branch OpenSSL_1_1_1u+quic https://github.com/quictls/openssl.git && \
+    cd openssl && \
+    ./config --prefix=/usr/local --openssldir=/usr/local no-shared && \
+    make -j$(nproc) && \
+    make install_sw
 
-# === Build and install sfparse ===
-WORKDIR /build
-RUN git clone --branch v1.9.0 https://github.com/ngtcp2/sfparse.git
+# 构建 sfparse
 WORKDIR /build/sfparse
-RUN autoreconf -fi && ./configure --prefix=/usr/local && make -j$(nproc) && make install
-
-# === Build and install nghttp3 ===
-WORKDIR /build
-RUN git clone https://github.com/ngtcp2/nghttp3.git
-WORKDIR /build/nghttp3
-RUN autoreconf -fi && ./configure --prefix=/usr/local && make -j$(nproc) && make install
-
-# === Build and install ngtcp2 ===
-WORKDIR /build
-RUN git clone https://github.com/ngtcp2/ngtcp2.git
-WORKDIR /build/ngtcp2
-RUN autoreconf -fi && ./configure \
-    --prefix=/usr/local \
-    --enable-lib-only \
-    --with-openssl=/usr/local \
-    PKG_CONFIG_PATH="/usr/local/lib/pkgconfig" && \
-    make -j$(nproc) && make install
-
-# === Build and install Unbound ===
-WORKDIR /build
-RUN git clone https://github.com/NLnetLabs/unbound.git
-WORKDIR /build/unbound
-RUN git checkout release-1.19.3 && \
+RUN git clone --depth=1 https://github.com/ngtcp2/sfparse.git . && \
     autoreconf -fi && \
-    ./configure --prefix=/usr/local \
-        --with-libexpat=/usr \
-        --with-ssl=/usr/local \
-        --with-libevent=/usr \
-        --enable-dnscrypt \
-        --enable-dns-over-tls \
-        --enable-dns-over-https \
-        --enable-dns-over-quic && \
-    make -j$(nproc) && make install
+    ./configure --prefix=/usr/local && \
+    make -j$(nproc) && \
+    make install
 
-# === Final image ===
-FROM alpine:latest
+# 构建 nghttp3
+WORKDIR /build/nghttp3
+RUN git clone --branch v1.9.0 https://github.com/ngtcp2/nghttp3.git . && \
+    autoreconf -fi && \
+    ./configure --prefix=/usr/local --enable-lib-only && \
+    make -j$(nproc) && \
+    make install
 
-RUN apk add --no-cache libevent libexpat libsodium
+# 构建 ngtcp2
+WORKDIR /build/ngtcp2
+RUN git clone --branch v1.9.0 https://github.com/ngtcp2/ngtcp2.git . && \
+    autoreconf -fi && \
+    ./configure --prefix=/usr/local --enable-lib-only \
+      --with-openssl --with-libnghttp3=/usr/local && \
+    make -j$(nproc) && \
+    make install
 
-COPY --from=builder /usr/local /usr/local
-ENV PATH="/usr/local/sbin:/usr/local/bin:$PATH"
+# 构建 unbound（支持 DNS-over-QUIC）
+WORKDIR /build/unbound
+RUN git clone --branch release-1.19.3 https://github.com/NLnetLabs/unbound.git . && \
+    ./autogen.sh && \
+    ./configure --prefix=/opt/unbound \
+      --with-ssl=/usr/local \
+      --with-libngtcp2=/usr/local \
+      --with-libnghttp3=/usr/local \
+      --enable-dns-over-quic \
+      --enable-dnscrypt \
+      --disable-static \
+      --enable-shared && \
+    make -j$(nproc) && \
+    make install
 
-ENTRYPOINT ["unbound"]
-CMD ["-d", "-c", "/etc/unbound/unbound.conf"]
+# 生产镜像（仅复制最终产物）
+FROM alpine:3.19 AS final
+
+RUN apk add --no-cache libevent expat libsodium libcap openssl
+
+COPY --from=builder /opt/unbound /opt/unbound
+
+ENV PATH="/opt/unbound/sbin:$PATH"
+
+# 默认启动命令（你可以改成 CMD ["unbound", "-d"]）
+CMD ["unbound", "-V"]
