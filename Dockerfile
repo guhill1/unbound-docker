@@ -1,68 +1,78 @@
-# -------- Stage 1: Build everything --------
-FROM ubuntu:22.04 AS builder
+FROM alpine:latest AS builder
 
-ENV DEBIAN_FRONTEND=noninteractive
+ENV CFLAGS="-I/usr/local/include"
+ENV LDFLAGS="-L/usr/local/lib"
+ENV PKG_CONFIG_PATH="/usr/local/lib/pkgconfig"
 
-RUN apt update && apt install -y \
-    build-essential \
-    autoconf automake libtool pkg-config \
-    git curl ca-certificates \
-    libevent-dev libexpat1-dev \
-    libyaml-dev libsodium-dev
+RUN apk add --no-cache \
+  build-base \
+  autoconf \
+  automake \
+  libtool \
+  git \
+  cmake \
+  libevent-dev \
+  libexpat-dev \
+  libsodium-dev \
+  libcap \
+  linux-headers \
+  curl \
+  openssl-dev
 
-# ---- Install OpenSSL (quictls branch) ----
+WORKDIR /build
+
+# === Build and install quictls OpenSSL ===
+RUN git clone --depth=1 -b OpenSSL_1_1_1w+quic https://github.com/quictls/openssl.git
 WORKDIR /build/openssl
-RUN git clone --depth=1 -b OpenSSL_1_1_1w+quic https://github.com/quictls/openssl.git . && \
-    ./config --prefix=/usr/local --openssldir=/usr/local/ssl && \
-    make -j$(nproc) && make install
+RUN ./config --prefix=/usr/local --openssldir=/usr/local/ssl no-shared && \
+    make -j$(nproc) && make install_sw
 
-ENV PATH="/usr/local/bin:$PATH"
-ENV LD_LIBRARY_PATH="/usr/local/lib"
-
-# ---- Build and install sfparse ----
+# === Build and install sfparse ===
+WORKDIR /build
+RUN git clone --branch v1.9.0 https://github.com/ngtcp2/sfparse.git
 WORKDIR /build/sfparse
-RUN git clone https://github.com/ngtcp2/sfparse.git . && \
-    autoreconf -i && ./configure --prefix=/usr/local && \
-    make -j$(nproc) && make install
+RUN autoreconf -fi && ./configure --prefix=/usr/local && make -j$(nproc) && make install
 
-# ---- Build and install nghttp3 ----
+# === Build and install nghttp3 ===
+WORKDIR /build
+RUN git clone https://github.com/ngtcp2/nghttp3.git
 WORKDIR /build/nghttp3
-RUN git clone --branch v1.9.0 https://github.com/ngtcp2/nghttp3.git . && \
-    autoreconf -fi && \
-    ./configure --prefix=/usr/local && \
-    make -j$(nproc) && make install
+RUN autoreconf -fi && ./configure --prefix=/usr/local && make -j$(nproc) && make install
 
-# ---- Build and install ngtcp2 ----
+# === Build and install ngtcp2 ===
+WORKDIR /build
+RUN git clone https://github.com/ngtcp2/ngtcp2.git
 WORKDIR /build/ngtcp2
-RUN git clone --branch v1.9.0 https://github.com/ngtcp2/ngtcp2.git . && \
-    autoreconf -fi && \
-    ./configure --prefix=/usr/local \
-        PKG_CONFIG_PATH="/usr/local/lib/pkgconfig" \
-        --with-openssl=/usr/local \
-        --with-libnghttp3=/usr/local \
-        --with-libsfparse=/usr/local && \
+RUN autoreconf -fi && ./configure \
+    --prefix=/usr/local \
+    --enable-lib-only \
+    --with-openssl=/usr/local \
+    PKG_CONFIG_PATH="/usr/local/lib/pkgconfig" && \
     make -j$(nproc) && make install
 
-# ---- Build and install Unbound (QUIC support) ----
+# === Build and install Unbound ===
+WORKDIR /build
+RUN git clone https://github.com/NLnetLabs/unbound.git
 WORKDIR /build/unbound
-RUN git clone https://github.com/NLnetLabs/unbound.git . && \
-    git checkout release-1.19.3 && \
+RUN git checkout release-1.19.3 && \
     autoreconf -fi && \
     ./configure --prefix=/usr/local \
-        --enable-dnscrypt \
-        --enable-dnstap \
-        --enable-subnet \
-        --with-libevent \
+        --with-libexpat=/usr \
         --with-ssl=/usr/local \
-        --with-libngtcp2=/usr/local \
-        --with-libnghttp3=/usr/local && \
+        --with-libevent=/usr \
+        --enable-dnscrypt \
+        --enable-dns-over-tls \
+        --enable-dns-over-https \
+        --enable-dns-over-quic && \
     make -j$(nproc) && make install
 
-# -------- Stage 2: Minimal runtime image --------
-FROM debian:bullseye-slim
+# === Final image ===
+FROM alpine:latest
+
+RUN apk add --no-cache libevent libexpat libsodium
 
 COPY --from=builder /usr/local /usr/local
-ENV LD_LIBRARY_PATH="/usr/local/lib"
+ENV PATH="/usr/local/sbin:/usr/local/bin:$PATH"
 
-ENTRYPOINT ["/usr/local/sbin/unbound"]
-CMD ["-d"]
+ENTRYPOINT ["unbound"]
+CMD ["-d", "-c", "/etc/unbound/unbound.conf"]
