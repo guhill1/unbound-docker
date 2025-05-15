@@ -72,12 +72,12 @@ RUN git clone --branch ${NGTCP2_VER} https://github.com/ngtcp2/ngtcp2.git . && \
 
 # ---------- Build Unbound ----------
 WORKDIR /build/unbound
-ENV PATH=${OPENSSL_DIR}/bin:$PATH \
-    PKG_CONFIG_PATH=${OPENSSL_DIR}/lib/pkgconfig \
-    CPPFLAGS="-I${OPENSSL_DIR}/include" \
-    LDFLAGS="-L${OPENSSL_DIR}/lib -Wl,-rpath,${OPENSSL_DIR}/lib" \
-    OPENSSL_CFLAGS="-I${OPENSSL_DIR}/include" \
-    OPENSSL_LIBS="-L${OPENSSL_DIR}/lib -lssl -lcrypto"
+
+ENV OPENSSL_DIR=/opt/quictls \
+    PKG_CONFIG_PATH=/opt/quictls/lib/pkgconfig \
+    CPPFLAGS="-I/opt/quictls/include" \
+    LDFLAGS="-L/opt/quictls/lib -Wl,-rpath,/opt/quictls/lib" \
+    PATH=/opt/quictls/bin:$PATH
 
 RUN git clone https://github.com/NLnetLabs/unbound.git . && \
     git checkout release-1.19.3 && \
@@ -87,9 +87,10 @@ RUN git clone https://github.com/NLnetLabs/unbound.git . && \
       --with-libevent \
       --with-libngtcp2 \
       --with-libnghttp3 \
-      --with-ssl \
+      --with-ssl=/opt/quictls \
       --enable-dns-over-quic && \
     make -j$(nproc) && make install
+
 
 
 # ---------- Stage 2: Final image ----------
