@@ -3,8 +3,7 @@ FROM debian:bookworm AS builder
 
 ENV OPENSSL_DIR=/opt/quictls \
     NGHTTP3_VER=v1.9.0 \
-    NGTCP2_VER=v1.9.0 \
-    LD_LIBRARY_PATH=/opt/quictls/lib
+    NGTCP2_VER=v1.9.0
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
@@ -25,6 +24,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
+# ----- Build sfparse -----
 WORKDIR /build/sfparse
 RUN git clone https://github.com/ngtcp2/sfparse.git . && \
     mkdir -p /tmp/sfparse-copy && \
@@ -32,6 +32,7 @@ RUN git clone https://github.com/ngtcp2/sfparse.git . && \
     cp sfparse.h /tmp/sfparse-copy/sfparse.h && \
     autoreconf -fi && ./configure --prefix=/usr/local && make -j$(nproc) && make install
 
+# ----- Build nghttp3 -----
 WORKDIR /build/nghttp3
 RUN git clone --branch ${NGHTTP3_VER} https://github.com/ngtcp2/nghttp3.git . && \
     mkdir -p lib/sfparse && \
@@ -41,6 +42,7 @@ RUN git clone --branch ${NGHTTP3_VER} https://github.com/ngtcp2/nghttp3.git . &&
     ./configure --prefix=/usr/local --enable-lib-only && \
     make -j$(nproc) && make install
 
+# ----- Build quictls (OpenSSL with QUIC) -----
 WORKDIR /build/quictls
 RUN git clone --depth 1 -b openssl-3.1.5+quic https://github.com/quictls/openssl.git . && \
     ./Configure enable-tls1_3 --prefix=${OPENSSL_DIR} linux-x86_64 && \
@@ -55,15 +57,22 @@ RUN git clone --depth 1 -b openssl-3.1.5+quic https://github.com/quictls/openssl
     echo "Description: Secure Sockets Layer and cryptography libraries" >> ${OPENSSL_DIR}/lib/pkgconfig/openssl.pc && \
     echo "Version: 3.1.5" >> ${OPENSSL_DIR}/lib/pkgconfig/openssl.pc && \
     echo "Libs: -L\${libdir} -lssl -lcrypto" >> ${OPENSSL_DIR}/lib/pkgconfig/openssl.pc && \
-    echo "Cflags: -I\${includedir}" >> ${OPENSSL_DIR}/lib/pkgconfig/openssl.pc
+    echo "Cflags: -I\${includedir}" >> ${OPENSSL_DIR}/lib/pkgconfig/openssl.pc && \
+    echo "/opt/quictls/lib" > /etc/ld.so.conf.d/quictls.conf && ldconfig
 
-# 测试 openssl 版本，确保库可用
-RUN ${OPENSSL_DIR}/bin/openssl version
+# Debug: List OpenSSL build result
+RUN echo "📁 Listing /opt/quictls/lib:" && ls -l /opt/quictls/lib && \
+    echo "🔍 Searching for libssl*" && find /opt/quictls/lib -name 'libssl*' && \
+    echo "🔍 Searching for libcrypto*" && find /opt/quictls/lib -name 'libcrypto*'
 
+# Test OpenSSL binary
+RUN /opt/quictls/bin/openssl version
+
+# ----- Build ngtcp2 -----
 WORKDIR /build/ngtcp2
+ENV PKG_CONFIG_PATH="${OPENSSL_DIR}/lib/pkgconfig"
 RUN git clone --branch ${NGTCP2_VER} https://github.com/ngtcp2/ngtcp2.git . && \
     autoreconf -fi && \
-    export PKG_CONFIG_PATH="${OPENSSL_DIR}/lib/pkgconfig" && \
     ./configure --prefix=/usr/local \
         LDFLAGS="-Wl,-rpath,${OPENSSL_DIR}/lib" \
         --with-openssl=${OPENSSL_DIR} \
@@ -71,17 +80,16 @@ RUN git clone --branch ${NGTCP2_VER} https://github.com/ngtcp2/ngtcp2.git . && \
         --enable-lib-only && \
     make -j$(nproc) && make install
 
+# ----- Build unbound -----
 WORKDIR /build/unbound
 
-ENV OPENSSL_DIR=/opt/quictls \
-    OPENSSL_CFLAGS="-I/opt/quictls/include" \
-    OPENSSL_LIBS="-L/opt/quictls/lib -lssl -lcrypto -Wl,-rpath,/opt/quictls/lib" \
-    PKG_CONFIG_PATH="/opt/quictls/lib/pkgconfig" \
-    CPPFLAGS="-I/opt/quictls/include" \
-    CFLAGS="-I/opt/quictls/include" \
-    LDFLAGS="-L/opt/quictls/lib -Wl,-rpath,/opt/quictls/lib" \
-    PATH="/opt/quictls/bin:$PATH" \
-    LD_LIBRARY_PATH=/opt/quictls/lib
+ENV OPENSSL_CFLAGS="-I${OPENSSL_DIR}/include" \
+    OPENSSL_LIBS="-L${OPENSSL_DIR}/lib -lssl -lcrypto -Wl,-rpath,${OPENSSL_DIR}/lib" \
+    PKG_CONFIG_PATH="${OPENSSL_DIR}/lib/pkgconfig" \
+    CPPFLAGS="-I${OPENSSL_DIR}/include" \
+    CFLAGS="-I${OPENSSL_DIR}/include" \
+    LDFLAGS="-L${OPENSSL_DIR}/lib -Wl,-rpath,${OPENSSL_DIR}/lib" \
+    PATH="${OPENSSL_DIR}/bin:$PATH"
 
 RUN git clone https://github.com/NLnetLabs/unbound.git . && \
     git checkout release-1.19.3 && \
@@ -91,10 +99,9 @@ RUN git clone https://github.com/NLnetLabs/unbound.git . && \
       --with-libevent \
       --with-libngtcp2 \
       --with-libnghttp3 \
-      --with-ssl=/opt/quictls \
+      --with-ssl=${OPENSSL_DIR} \
       --enable-dns-over-quic && \
     make -j$(nproc) && make install
-
 
 # ---------- Stage 2: Final image ----------
 FROM alpine:3.21
@@ -106,8 +113,6 @@ COPY --from=builder /opt/quictls /opt/quictls
 COPY --from=builder /opt/quictls/lib/*.so* /usr/lib/
 
 ENV PATH=/usr/local/sbin:$PATH
-ENV LD_LIBRARY_PATH=/opt/quictls/lib
 
 EXPOSE 853/udp 853/tcp 8853/udp
-
 ENTRYPOINT ["/usr/local/sbin/unbound", "-d", "-c", "/etc/unbound/unbound.conf"]
