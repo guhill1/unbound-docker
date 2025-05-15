@@ -72,7 +72,11 @@ RUN git clone --branch ${NGTCP2_VER} https://github.com/ngtcp2/ngtcp2.git . && \
 
 # ---------- Build Unbound ----------
 WORKDIR /build/unbound
-ENV PATH=${OPENSSL_DIR}/bin:$PATH
+ENV PATH=${OPENSSL_DIR}/bin:$PATH \
+    PKG_CONFIG_PATH=${OPENSSL_DIR}/lib/pkgconfig \
+    CPPFLAGS=-I${OPENSSL_DIR}/include \
+    LDFLAGS="-L${OPENSSL_DIR}/lib -Wl,-rpath,${OPENSSL_DIR}/lib"
+
 RUN git clone https://github.com/NLnetLabs/unbound.git . && \
     git checkout release-1.19.3 && \
     ./configure \
@@ -80,16 +84,9 @@ RUN git clone https://github.com/NLnetLabs/unbound.git . && \
       --with-libevent \
       --with-libngtcp2 \
       --with-libnghttp3 \
-      --with-ssl \
-      --with-ssl-lib=${OPENSSL_DIR}/lib \
-      --with-ssl-include=${OPENSSL_DIR}/include \
-      --enable-dns-over-quic \
-      CPPFLAGS="-I${OPENSSL_DIR}/include" \
-      LDFLAGS="-Wl,-rpath,${OPENSSL_DIR}/lib" \
-      PKG_CONFIG_PATH="${OPENSSL_DIR}/lib/pkgconfig" && \
+      --with-ssl=${OPENSSL_DIR} \
+      --enable-dns-over-quic && \
     make -j$(nproc) && make install
-
-
 
 # ---------- Stage 2: Final image ----------
 FROM alpine:3.21
