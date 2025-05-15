@@ -73,11 +73,15 @@ RUN git clone --branch ${NGTCP2_VER} https://github.com/ngtcp2/ngtcp2.git . && \
 # ---------- Build Unbound ----------
 WORKDIR /build/unbound
 
+# 关键修复：复制 quictls 的 openssl 头文件到 /usr/include
+RUN mkdir -p /usr/include/openssl && cp -r /opt/quictls/include/openssl/* /usr/include/openssl/
+
 ENV OPENSSL_DIR=/opt/quictls \
     OPENSSL_CFLAGS="-I/opt/quictls/include" \
     OPENSSL_LIBS="-L/opt/quictls/lib -lssl -lcrypto -Wl,-rpath,/opt/quictls/lib" \
     PKG_CONFIG_PATH="/opt/quictls/lib/pkgconfig" \
     CPPFLAGS="-I/opt/quictls/include" \
+    CFLAGS="-I/opt/quictls/include" \
     LDFLAGS="-L/opt/quictls/lib -Wl,-rpath,/opt/quictls/lib" \
     PATH="/opt/quictls/bin:$PATH"
 
