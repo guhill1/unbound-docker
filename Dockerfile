@@ -66,14 +66,14 @@ RUN git clone --depth 1 -b openssl-3.1.5+quic https://github.com/quictls/openssl
 WORKDIR /build/ngtcp2
 RUN git clone --branch ${NGTCP2_VER} https://github.com/ngtcp2/ngtcp2.git . && \
     autoreconf -fi && \
-    PKG_CONFIG_PATH="${OPENSSL_DIR}/lib/pkgconfig" \
+    export PKG_CONFIG_PATH="${OPENSSL_DIR}/lib/pkgconfig" && \
     ./configure --prefix=/usr/local \
         LDFLAGS="-Wl,-rpath,${OPENSSL_DIR}/lib" \
-        --with-openssl \
+        --with-openssl=${OPENSSL_DIR} \
         --with-libnghttp3 \
         --enable-lib-only && \
     make -j$(nproc) && make install
-
+	
 # ---------- Build Unbound ----------
 WORKDIR /build/unbound
 RUN git clone https://github.com/NLnetLabs/unbound.git . && \
