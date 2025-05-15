@@ -107,6 +107,7 @@ RUN apk add --no-cache libevent libcap expat libsodium
 
 COPY --from=builder /usr/local /usr/local
 COPY --from=builder /opt/quictls /opt/quictls
+COPY --from=builder /opt/quictls/lib/*.so* /usr/lib/
 
 ENV PATH=/usr/local/sbin:$PATH
 
