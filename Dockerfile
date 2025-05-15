@@ -74,10 +74,12 @@ RUN git clone --branch ${NGTCP2_VER} https://github.com/ngtcp2/ngtcp2.git . && \
 WORKDIR /build/unbound
 
 ENV OPENSSL_DIR=/opt/quictls \
-    PKG_CONFIG_PATH=/opt/quictls/lib/pkgconfig \
+    OPENSSL_CFLAGS="-I/opt/quictls/include" \
+    OPENSSL_LIBS="-L/opt/quictls/lib -lssl -lcrypto -Wl,-rpath,/opt/quictls/lib" \
+    PKG_CONFIG_PATH="/opt/quictls/lib/pkgconfig" \
     CPPFLAGS="-I/opt/quictls/include" \
     LDFLAGS="-L/opt/quictls/lib -Wl,-rpath,/opt/quictls/lib" \
-    PATH=/opt/quictls/bin:$PATH
+    PATH="/opt/quictls/bin:$PATH"
 
 RUN git clone https://github.com/NLnetLabs/unbound.git . && \
     git checkout release-1.19.3 && \
@@ -90,8 +92,6 @@ RUN git clone https://github.com/NLnetLabs/unbound.git . && \
       --with-ssl=/opt/quictls \
       --enable-dns-over-quic && \
     make -j$(nproc) && make install
-
-
 
 # ---------- Stage 2: Final image ----------
 FROM alpine:3.21
