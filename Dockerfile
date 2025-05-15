@@ -1,26 +1,29 @@
 # ---------- Stage 1: Build environment ----------
-FROM alpine:3.21 AS builder
+FROM debian:bookworm AS builder
 
 ENV OPENSSL_DIR=/opt/quictls \
     NGHTTP3_VER=v1.9.0 \
     NGTCP2_VER=v1.9.0
 
-RUN apk add --no-cache \
-    build-base \
+# ✅ 将 apk 替换为 apt
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
     autoconf \
     automake \
     libtool \
     git \
     cmake \
     libevent-dev \
-    expat-dev \
+    libexpat1-dev \
     libsodium-dev \
-    libcap \
-    linux-headers \
+    libcap-dev \
+    linux-headers-amd64 \
     curl \
     pkgconf \
     flex \
-    bison
+    bison \
+    ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build/sfparse
 RUN git clone https://github.com/ngtcp2/sfparse.git . && \
@@ -76,7 +79,6 @@ ENV OPENSSL_DIR=/opt/quictls \
     LDFLAGS="-L/opt/quictls/lib -Wl,-rpath,/opt/quictls/lib" \
     PATH="/opt/quictls/bin:$PATH"
 
-# ✅ 只改动这一行：加上 LD_LIBRARY_PATH
 RUN LD_LIBRARY_PATH=/opt/quictls/lib /opt/quictls/bin/openssl version
 
 RUN git clone https://github.com/NLnetLabs/unbound.git . && \
