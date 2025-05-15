@@ -5,7 +5,6 @@ ENV OPENSSL_DIR=/opt/quictls \
     NGHTTP3_VER=v1.9.0 \
     NGTCP2_VER=v1.9.0
 
-# 安装构建依赖（新增 flex 和 bison，仅为构建 Unbound 所需）
 RUN apk add --no-cache \
     build-base \
     autoconf \
@@ -23,7 +22,6 @@ RUN apk add --no-cache \
     flex \
     bison
 
-# ---------- Build sfparse ----------
 WORKDIR /build/sfparse
 RUN git clone https://github.com/ngtcp2/sfparse.git . && \
     mkdir -p /tmp/sfparse-copy && \
@@ -31,7 +29,6 @@ RUN git clone https://github.com/ngtcp2/sfparse.git . && \
     cp sfparse.h /tmp/sfparse-copy/sfparse.h && \
     autoreconf -fi && ./configure --prefix=/usr/local && make -j$(nproc) && make install
 
-# ---------- Build nghttp3 ----------
 WORKDIR /build/nghttp3
 RUN git clone --branch ${NGHTTP3_VER} https://github.com/ngtcp2/nghttp3.git . && \
     mkdir -p lib/sfparse && \
@@ -41,7 +38,6 @@ RUN git clone --branch ${NGHTTP3_VER} https://github.com/ngtcp2/nghttp3.git . &&
     ./configure --prefix=/usr/local --enable-lib-only && \
     make -j$(nproc) && make install
 
-# ---------- Build OpenSSL (quictls) ----------
 WORKDIR /build/quictls
 RUN git clone --depth 1 -b openssl-3.1.5+quic https://github.com/quictls/openssl.git . && \
     ./Configure enable-tls1_3 --prefix=${OPENSSL_DIR} linux-x86_64 && \
@@ -58,7 +54,6 @@ RUN git clone --depth 1 -b openssl-3.1.5+quic https://github.com/quictls/openssl
     echo "Libs: -L\${libdir} -lssl -lcrypto" >> ${OPENSSL_DIR}/lib/pkgconfig/openssl.pc && \
     echo "Cflags: -I\${includedir}" >> ${OPENSSL_DIR}/lib/pkgconfig/openssl.pc
 
-# ---------- Build ngtcp2 ----------
 WORKDIR /build/ngtcp2
 RUN git clone --branch ${NGTCP2_VER} https://github.com/ngtcp2/ngtcp2.git . && \
     autoreconf -fi && \
@@ -70,10 +65,8 @@ RUN git clone --branch ${NGTCP2_VER} https://github.com/ngtcp2/ngtcp2.git . && \
         --enable-lib-only && \
     make -j$(nproc) && make install
 
-# ---------- Build Unbound ----------
 WORKDIR /build/unbound
 
-# 保证 openssl 头文件路径一致
 ENV OPENSSL_DIR=/opt/quictls \
     OPENSSL_CFLAGS="-I/opt/quictls/include" \
     OPENSSL_LIBS="-L/opt/quictls/lib -lssl -lcrypto -Wl,-rpath,/opt/quictls/lib" \
@@ -83,10 +76,9 @@ ENV OPENSSL_DIR=/opt/quictls \
     LDFLAGS="-L/opt/quictls/lib -Wl,-rpath,/opt/quictls/lib" \
     PATH="/opt/quictls/bin:$PATH"
 
-# 可选调试：确认 OpenSSL 版本
-RUN /opt/quictls/bin/openssl version
+# ✅ 只改动这一行：加上 LD_LIBRARY_PATH
+RUN LD_LIBRARY_PATH=/opt/quictls/lib /opt/quictls/bin/openssl version
 
-# 编译 Unbound
 RUN git clone https://github.com/NLnetLabs/unbound.git . && \
     git checkout release-1.19.3 && \
     autoreconf -fi && \
