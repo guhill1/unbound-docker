@@ -3,9 +3,9 @@ FROM debian:bookworm AS builder
 
 ENV OPENSSL_DIR=/opt/quictls \
     NGHTTP3_VER=v1.9.0 \
-    NGTCP2_VER=v1.9.0
+    NGTCP2_VER=v1.9.0 \
+    LD_LIBRARY_PATH=/opt/quictls/lib
 
-# ✅ 将 apk 替换为 apt
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     autoconf \
@@ -57,6 +57,9 @@ RUN git clone --depth 1 -b openssl-3.1.5+quic https://github.com/quictls/openssl
     echo "Libs: -L\${libdir} -lssl -lcrypto" >> ${OPENSSL_DIR}/lib/pkgconfig/openssl.pc && \
     echo "Cflags: -I\${includedir}" >> ${OPENSSL_DIR}/lib/pkgconfig/openssl.pc
 
+# 测试 openssl 版本，确保库可用
+RUN ${OPENSSL_DIR}/bin/openssl version
+
 WORKDIR /build/ngtcp2
 RUN git clone --branch ${NGTCP2_VER} https://github.com/ngtcp2/ngtcp2.git . && \
     autoreconf -fi && \
@@ -77,9 +80,8 @@ ENV OPENSSL_DIR=/opt/quictls \
     CPPFLAGS="-I/opt/quictls/include" \
     CFLAGS="-I/opt/quictls/include" \
     LDFLAGS="-L/opt/quictls/lib -Wl,-rpath,/opt/quictls/lib" \
-    PATH="/opt/quictls/bin:$PATH"
-
-RUN LD_LIBRARY_PATH=/opt/quictls/lib /opt/quictls/bin/openssl version
+    PATH="/opt/quictls/bin:$PATH" \
+    LD_LIBRARY_PATH=/opt/quictls/lib
 
 RUN git clone https://github.com/NLnetLabs/unbound.git . && \
     git checkout release-1.19.3 && \
@@ -104,6 +106,8 @@ COPY --from=builder /opt/quictls /opt/quictls
 COPY --from=builder /opt/quictls/lib/*.so* /usr/lib/
 
 ENV PATH=/usr/local/sbin:$PATH
+ENV LD_LIBRARY_PATH=/opt/quictls/lib
 
 EXPOSE 853/udp 853/tcp 8853/udp
+
 ENTRYPOINT ["/usr/local/sbin/unbound", "-d", "-c", "/etc/unbound/unbound.conf"]
