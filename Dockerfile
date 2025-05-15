@@ -46,27 +46,18 @@ RUN git clone --branch ${NGHTTP3_VER} https://github.com/ngtcp2/nghttp3.git . &&
 WORKDIR /build/quictls
 RUN git clone --depth 1 -b openssl-3.1.5+quic https://github.com/quictls/openssl.git . && \
     ./Configure enable-tls1_3 --prefix=${OPENSSL_DIR} linux-x86_64 && \
-    make -j$(nproc) && make install_sw && \
-    mkdir -p ${OPENSSL_DIR}/lib/pkgconfig && \
-    echo "prefix=${OPENSSL_DIR}" > ${OPENSSL_DIR}/lib/pkgconfig/openssl.pc && \
-    echo "exec_prefix=\${prefix}" >> ${OPENSSL_DIR}/lib/pkgconfig/openssl.pc && \
-    echo "libdir=\${exec_prefix}/lib" >> ${OPENSSL_DIR}/lib/pkgconfig/openssl.pc && \
-    echo "includedir=\${prefix}/include" >> ${OPENSSL_DIR}/lib/pkgconfig/openssl.pc && \
-    echo "" >> ${OPENSSL_DIR}/lib/pkgconfig/openssl.pc && \
-    echo "Name: OpenSSL" >> ${OPENSSL_DIR}/lib/pkgconfig/openssl.pc && \
-    echo "Description: Secure Sockets Layer and cryptography libraries" >> ${OPENSSL_DIR}/lib/pkgconfig/openssl.pc && \
-    echo "Version: 3.1.5" >> ${OPENSSL_DIR}/lib/pkgconfig/openssl.pc && \
-    echo "Libs: -L\${libdir} -lssl -lcrypto" >> ${OPENSSL_DIR}/lib/pkgconfig/openssl.pc && \
-    echo "Cflags: -I\${includedir}" >> ${OPENSSL_DIR}/lib/pkgconfig/openssl.pc && \
-    echo "/opt/quictls/lib" > /etc/ld.so.conf.d/quictls.conf && ldconfig
+    make -j$(nproc) && make install && \
+    # 配置动态库路径
+    echo "/opt/quictls/lib" > /etc/ld.so.conf.d/quictls.conf && \
+    echo "/opt/quictls/lib64" >> /etc/ld.so.conf.d/quictls.conf && \
+    ldconfig && \
+    # 调试输出
+    echo "📁 Listing /opt/quictls/lib:" && ls -l /opt/quictls/lib && \
+    echo "📁 Listing /opt/quictls/lib64:" && ls -l /opt/quictls/lib64 && \
+    echo "🔍 Searching for libssl*" && find /opt/quictls -name 'libssl*' && \
+    echo "🔍 Searching for libcrypto*" && find /opt/quictls -name 'libcrypto*' && \
+    echo "🚀 Testing OpenSSL binary:" && /opt/quictls/bin/openssl version
 
-# Debug: List OpenSSL build result
-RUN echo "📁 Listing /opt/quictls/lib:" && ls -l /opt/quictls/lib && \
-    echo "🔍 Searching for libssl*" && find /opt/quictls/lib -name 'libssl*' && \
-    echo "🔍 Searching for libcrypto*" && find /opt/quictls/lib -name 'libcrypto*'
-
-# Test OpenSSL binary
-RUN /opt/quictls/bin/openssl version
 
 # ----- Build ngtcp2 -----
 WORKDIR /build/ngtcp2
