@@ -73,18 +73,20 @@ RUN git clone --branch ${NGTCP2_VER} https://github.com/ngtcp2/ngtcp2.git . && \
 # ---------- Build Unbound ----------
 WORKDIR /build/unbound
 
-# 修复 configure 检测 openssl 版本失败的问题
-RUN mkdir -p /usr/local/include/openssl && cp -r /opt/quictls/include/openssl/* /usr/local/include/openssl
-
+# 保证 openssl 头文件路径一致
 ENV OPENSSL_DIR=/opt/quictls \
-    OPENSSL_CFLAGS="-I/usr/local/include" \
+    OPENSSL_CFLAGS="-I/opt/quictls/include" \
     OPENSSL_LIBS="-L/opt/quictls/lib -lssl -lcrypto -Wl,-rpath,/opt/quictls/lib" \
     PKG_CONFIG_PATH="/opt/quictls/lib/pkgconfig" \
-    CPPFLAGS="-I/usr/local/include" \
-    CFLAGS="-I/usr/local/include" \
+    CPPFLAGS="-I/opt/quictls/include" \
+    CFLAGS="-I/opt/quictls/include" \
     LDFLAGS="-L/opt/quictls/lib -Wl,-rpath,/opt/quictls/lib" \
     PATH="/opt/quictls/bin:$PATH"
 
+# 可选调试：确认 OpenSSL 版本
+RUN /opt/quictls/bin/openssl version
+
+# 编译 Unbound
 RUN git clone https://github.com/NLnetLabs/unbound.git . && \
     git checkout release-1.19.3 && \
     autoreconf -fi && \
@@ -96,6 +98,7 @@ RUN git clone https://github.com/NLnetLabs/unbound.git . && \
       --with-ssl=/opt/quictls \
       --enable-dns-over-quic && \
     make -j$(nproc) && make install
+
 
 # ---------- Stage 2: Final image ----------
 FROM alpine:3.21
