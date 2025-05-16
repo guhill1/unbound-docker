@@ -106,13 +106,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # 添加 unbound 系统用户（避免 fatal error）
 RUN adduser --system --no-create-home --disabled-login --disabled-password --group unbound
 
-# 从 build 阶段复制可执行文件和配置
-COPY --from=build /usr/local/sbin/unbound /usr/local/sbin/unbound
-COPY --from=build /usr/local/lib/ /usr/local/lib/
-COPY --from=build /etc/unbound/unbound.conf /etc/unbound/unbound.conf
+# 从 builder 阶段复制可执行文件和配置
+COPY --from=builder /usr/local/sbin/unbound /usr/local/sbin/unbound
+COPY --from=builder /usr/local/lib/ /usr/local/lib/
+COPY --from=builder /etc/unbound/unbound.conf /etc/unbound/unbound.conf
 
 # 可选：复制其他配置或根提示文件等
-# COPY --from=build /etc/unbound/root.hints /etc/unbound/root.hints
+# COPY --from=builder /etc/unbound/root.hints /etc/unbound/root.hints
 
 # 设置运行用户（可选，也可以保留 root）
 USER unbound
