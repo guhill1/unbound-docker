@@ -92,20 +92,25 @@ RUN git clone https://github.com/NLnetLabs/unbound.git . && \
     make -j$(nproc) && make install
 
 # ---------- Stage 2: Final image ----------
-FROM debian:bookworm-slim
+FROM debian:bookworm-slim AS stage2
 
+# 安装运行所需依赖（Unbound、OpenSSL、QUIC 等依赖）
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libevent-2.1-7 \
     libcap2 \
     libexpat1 \
     libsodium23 \
+    ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /usr/local /usr/local
+# 添加 unbound 系统用户（避免 fatal error）
+RUN adduser --system --no-create-home --disabled-login --disabled-password --group unbound
 
-ENV PATH="/usr/local/sbin:$PATH"
-ENV LD_LIBRARY_PATH="/usr/local/lib:$LD_LIBRARY_PATH"
+# 设置工作目录（可选）
+WORKDIR /etc/unbound
 
-EXPOSE 853/tcp 853/udp 8853/udp
+# 设置容器默认执行命令（可按需修改）
+CMD ["/usr/local/sbin/unbound", "-d", "-c", "/etc/unbound/unbound.conf"]
 
-ENTRYPOINT ["/usr/local/sbin/unbound", "-d", "-c", "/etc/unbound/unbound.conf"]
+
+
