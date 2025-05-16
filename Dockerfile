@@ -91,15 +91,26 @@ RUN git clone https://github.com/NLnetLabs/unbound.git . && \
       --enable-dns-over-quic && \
     make -j$(nproc) && make install
 
-# ---------- Stage 2: Final image (Alpine) ----------
-FROM alpine:3.21
+# ---------- Stage 2: Final image (Debian Slim with glibc) ----------
+FROM debian:bookworm-slim
 
-RUN apk add --no-cache libevent libcap expat libsodium
+# 安装运行时依赖（与编译时一致）
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libevent-2.1-7 \
+    libexpat1 \
+    libcap2-bin \
+    libsodium23 \
+ && rm -rf /var/lib/apt/lists/*
 
+# 复制编译产物（含 unbound、OpenSSL 等）
 COPY --from=builder /usr/local /usr/local
 
-ENV PATH=/usr/local/sbin:$PATH
+# 设置 PATH
+ENV PATH="/usr/local/sbin:$PATH"
 
-EXPOSE 853/udp 853/tcp 8853/udp
+# 暴露 DNS-over-TLS (TCP/UDP 853), DNS-over-QUIC (UDP 8853)
+EXPOSE 853/tcp 853/udp 8853/udp
 
+# 启动 Unbound
 ENTRYPOINT ["/usr/local/sbin/unbound", "-d", "-c", "/etc/unbound/unbound.conf"]
+
