@@ -102,7 +102,7 @@ RUN apk add --no-cache libevent libcap expat libsodium
 
 # ✅ 复制所有编译产物，包括 unbound 和 openssl 动态库
 COPY --from=builder /usr/local /usr/local
-COPY --from=builder /usr/local/lib /usr/local/lib  # ✅ 只加这一行是必须的
+COPY --from=builder /usr/local/lib /usr/local/lib
 
 ENV PATH=/usr/local/sbin:$PATH
 
