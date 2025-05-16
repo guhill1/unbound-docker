@@ -25,6 +25,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
 
 # ----- Build sfparse -----
+# 解决 sfparse 找不到问题的关键,生成在tmp目录
+
 WORKDIR /build/sfparse
 RUN git clone https://github.com/ngtcp2/sfparse.git . && \
     mkdir -p /tmp/sfparse-copy && \
@@ -52,6 +54,8 @@ RUN git clone --depth 1 -b openssl-3.1.5+quic https://github.com/quictls/openssl
     ldconfig
 
 # ✅ Copy OpenSSL .so files into /usr/local/lib for consistent copying
+# .so 文件找不到的关键,生成文件在 /opt/quictls/lib64/ 中拷贝
+
 RUN mkdir -p /usr/local/lib && \
     if [ -d /opt/quictls/lib ]; then cp -av /opt/quictls/lib/*.so* /usr/local/lib/; fi && \
     if [ -d /opt/quictls/lib64 ]; then cp -av /opt/quictls/lib64/*.so* /usr/local/lib/; fi
@@ -96,8 +100,9 @@ FROM alpine:3.21
 
 RUN apk add --no-cache libevent libcap expat libsodium
 
-# ✅ 只复制 /usr/local 就包含了 unbound + openssl .so 文件
+# ✅ 复制所有编译产物，包括 unbound 和 openssl 动态库
 COPY --from=builder /usr/local /usr/local
+COPY --from=builder /usr/local/lib /usr/local/lib  # ✅ 只加这一行是必须的
 
 ENV PATH=/usr/local/sbin:$PATH
 
