@@ -43,23 +43,22 @@ RUN git clone --branch ${NGHTTP3_VER} https://github.com/ngtcp2/nghttp3.git . &&
     make -j$(nproc) && make install
 
 # ----- Build quictls (OpenSSL with QUIC) -----
-WORKDIR /build/quictls
-
-# 替换你原来的 openssl 构建段
+# 构建 quictls OpenSSL 3.1.5（支持 QUIC）
+WORKDIR /tmp/openssl
 RUN git clone --depth 1 -b openssl-3.1.5+quic https://github.com/quictls/openssl.git . && \
     ./Configure enable-tls1_3 --prefix=${OPENSSL_DIR} linux-x86_64 && \
     make -j$(nproc) && make install && \
-    # 配置动态库路径
     echo "/opt/quictls/lib" > /etc/ld.so.conf.d/quictls.conf && \
     echo "/opt/quictls/lib64" >> /etc/ld.so.conf.d/quictls.conf && \
-    export LD_LIBRARY_PATH=/opt/quictls/lib:/opt/quictls/lib64:$LD_LIBRARY_PATH && \
     ldconfig && \
-    # 调试输出
-    echo "📁 Listing /opt/quictls/lib:" && ls -l /opt/quictls/lib && \
-    echo "📁 Listing /opt/quictls/lib64:" && ls -l /opt/quictls/lib64 && \
-    echo "🔍 Searching for libssl*" && find /opt/quictls -name 'libssl*' && \
-    echo "🔍 Searching for libcrypto*" && find /opt/quictls -name 'libcrypto*' && \
-    echo "🚀 Testing OpenSSL binary:" && LD_LIBRARY_PATH=/opt/quictls/lib:/opt/quictls/lib64 /opt/quictls/bin/openssl version
+    echo "📁 Checking OpenSSL .so files in /opt/quictls..." && \
+    ([ -d /opt/quictls/lib ] && ls -l /opt/quictls/lib || echo "/opt/quictls/lib not found") && \
+    ([ -d /opt/quictls/lib64 ] && ls -l /opt/quictls/lib64 || echo "/opt/quictls/lib64 not found") && \
+    echo "🔍 Searching for libssl*..." && find /opt/quictls -name 'libssl*' && \
+    echo "🔍 Searching for libcrypto*..." && find /opt/quictls -name 'libcrypto*' && \
+    echo "🚀 Testing OpenSSL binary:" && \
+    LD_LIBRARY_PATH=/opt/quictls/lib:/opt/quictls/lib64 /opt/quictls/bin/openssl version
+
 
 # ----- Build ngtcp2 -----
 WORKDIR /build/ngtcp2
