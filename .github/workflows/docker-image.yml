@@ -24,3 +24,15 @@ jobs:
       run: |
         docker build -t ghcr.io/guhill1/unbound:latest .
         docker push ghcr.io/guhill1/unbound:latest
+
+    - name: Extract unbound binary from image
+      run: |
+        id=$(docker create ghcr.io/guhill1/unbound:latest)
+        docker cp $id:/usr/local/sbin/unbound ./unbound
+        docker rm $id
+
+    - name: Upload unbound binary as artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: unbound
+        path: ./unbound
