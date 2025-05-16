@@ -104,6 +104,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # 复制编译产物（含 unbound、OpenSSL 等）
 COPY --from=builder /usr/local /usr/local
+COPY --from=builder /usr/local/lib /usr/local/lib
 
 # 设置 PATH
 ENV PATH="/usr/local/sbin:$PATH"
