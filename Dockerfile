@@ -43,22 +43,18 @@ RUN git clone --branch ${NGHTTP3_VER} https://github.com/ngtcp2/nghttp3.git . &&
     make -j$(nproc) && make install
 
 # ----- Build quictls (OpenSSL with QUIC) -----
-# 构建 quictls OpenSSL 3.1.5（支持 QUIC）
 WORKDIR /tmp/openssl
 RUN git clone --depth 1 -b openssl-3.1.5+quic https://github.com/quictls/openssl.git . && \
     ./Configure enable-tls1_3 --prefix=${OPENSSL_DIR} linux-x86_64 && \
     make -j$(nproc) && make install && \
     echo "/opt/quictls/lib" > /etc/ld.so.conf.d/quictls.conf && \
     echo "/opt/quictls/lib64" >> /etc/ld.so.conf.d/quictls.conf && \
-    ldconfig && \
-    echo "📁 Checking OpenSSL .so files in /opt/quictls..." && \
-    ([ -d /opt/quictls/lib ] && ls -l /opt/quictls/lib || echo "/opt/quictls/lib not found") && \
-    ([ -d /opt/quictls/lib64 ] && ls -l /opt/quictls/lib64 || echo "/opt/quictls/lib64 not found") && \
-    echo "🔍 Searching for libssl*..." && find /opt/quictls -name 'libssl*' && \
-    echo "🔍 Searching for libcrypto*..." && find /opt/quictls -name 'libcrypto*' && \
-    echo "🚀 Testing OpenSSL binary:" && \
-    LD_LIBRARY_PATH=/opt/quictls/lib:/opt/quictls/lib64 /opt/quictls/bin/openssl version
+    ldconfig
 
+# ✅ Copy OpenSSL .so files into /usr/local/lib for consistent copying
+RUN mkdir -p /usr/local/lib && \
+    if [ -d /opt/quictls/lib ]; then cp -av /opt/quictls/lib/*.so* /usr/local/lib/; fi && \
+    if [ -d /opt/quictls/lib64 ]; then cp -av /opt/quictls/lib64/*.so* /usr/local/lib/; fi
 
 # ----- Build ngtcp2 -----
 WORKDIR /build/ngtcp2
@@ -100,9 +96,8 @@ FROM alpine:3.21
 
 RUN apk add --no-cache libevent libcap expat libsodium
 
+# ✅ 只复制 /usr/local 就包含了 unbound + openssl .so 文件
 COPY --from=builder /usr/local /usr/local
-COPY --from=builder /opt/quictls /opt/quictls
-COPY --from=builder /opt/quictls/lib/*.so* /usr/lib/
 
 ENV PATH=/usr/local/sbin:$PATH
 
