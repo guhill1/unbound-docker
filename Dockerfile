@@ -92,7 +92,7 @@ RUN git clone https://github.com/NLnetLabs/unbound.git . && \
     make -j$(nproc) && make install
 
 # ---------- Stage 2: Final image ----------
-FROM debian:bookworm-slim AS stage2
+FROM debian:bookworm-slim
 
 # 安装运行所需依赖（Unbound、OpenSSL、QUIC 等依赖）
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -111,6 +111,3 @@ WORKDIR /etc/unbound
 
 # 设置容器默认执行命令（可按需修改）
 CMD ["/usr/local/sbin/unbound", "-d", "-c", "/etc/unbound/unbound.conf"]
-
-
-
