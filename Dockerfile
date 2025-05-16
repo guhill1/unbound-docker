@@ -95,7 +95,7 @@ RUN git clone https://github.com/NLnetLabs/unbound.git . && \
 FROM debian:bullseye-slim
 
 RUN apt-get update && apt-get install -y \
-    libevent-2.1-7 libcap2 libexpat1 libsodium6 \
+    libevent-2.1-7 libcap2 libexpat1 libsodium23 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /usr/local /usr/local
