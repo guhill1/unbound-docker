@@ -109,7 +109,7 @@ RUN adduser --system --no-create-home --disabled-login --disabled-password --gro
 # 从 builder 阶段复制可执行文件和配置
 COPY --from=builder /usr/local/sbin/unbound /usr/local/sbin/unbound
 COPY --from=builder /usr/local/lib/ /usr/local/lib/
-COPY --from=builder /etc/unbound/unbound.conf /etc/unbound/unbound.conf
+COPY unbound.conf /etc/unbound/unbound.conf
 
 # 可选：复制其他配置或根提示文件等
 # COPY --from=builder /etc/unbound/root.hints /etc/unbound/root.hints
@@ -122,7 +122,3 @@ WORKDIR /etc/unbound
 
 # 设置容器默认执行命令（确保 unbound 可运行）
 CMD ["/usr/local/sbin/unbound", "-d", "-c", "/etc/unbound/unbound.conf"]
-
-
-
-
