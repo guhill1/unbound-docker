@@ -94,31 +94,20 @@ RUN git clone https://github.com/NLnetLabs/unbound.git . && \
 # ---------- Stage 2: Final image ----------
 FROM debian:bookworm-slim
 
-# 安装运行所需依赖（Unbound、OpenSSL、QUIC 等依赖）
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libevent-2.1-7 \
-    libcap2 \
-    libexpat1 \
-    libsodium23 \
-    ca-certificates \
+    libevent-2.1-7 libcap2 libexpat1 libsodium23 ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
-# 添加 unbound 系统用户（避免 fatal error）
 RUN adduser --system --no-create-home --disabled-login --disabled-password --group unbound
 
-# 从 builder 阶段复制可执行文件和配置
 COPY --from=builder /usr/local/sbin/unbound /usr/local/sbin/unbound
-COPY --from=builder /usr/local/lib/ /usr/local/lib/
+COPY --from=builder /usr/local/lib/libssl.so.81.3 /usr/local/lib/
+COPY --from=builder /usr/local/lib/libcrypto.so.81.3 /usr/local/lib/
+
+# 链接器配置，确保能找到 libssl
+RUN echo "/usr/local/lib" > /etc/ld.so.conf.d/openssl.conf && ldconfig
+
 COPY unbound.conf /etc/unbound/unbound.conf
 
-# 可选：复制其他配置或根提示文件等
-# COPY --from=builder /etc/unbound/root.hints /etc/unbound/root.hints
-
-# 设置运行用户（可选，也可以保留 root）
-USER unbound
-
-# 设置工作目录（可选）
-WORKDIR /etc/unbound
-
-# 设置容器默认执行命令（确保 unbound 可运行）
 CMD ["/usr/local/sbin/unbound", "-d", "-c", "/etc/unbound/unbound.conf"]
+
