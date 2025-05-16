@@ -25,8 +25,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
 
 # ----- Build sfparse -----
-# 解决 sfparse 找不到问题的关键,生成在tmp目录
-
 WORKDIR /build/sfparse
 RUN git clone https://github.com/ngtcp2/sfparse.git . && \
     mkdir -p /tmp/sfparse-copy && \
@@ -44,7 +42,7 @@ RUN git clone --branch ${NGHTTP3_VER} https://github.com/ngtcp2/nghttp3.git . &&
     ./configure --prefix=/usr/local --enable-lib-only && \
     make -j$(nproc) && make install
 
-# ----- Build quictls (OpenSSL with QUIC) -----
+# ----- Build quictls -----
 WORKDIR /tmp/openssl
 RUN git clone --depth 1 -b openssl-3.1.5+quic https://github.com/quictls/openssl.git . && \
     ./Configure enable-tls1_3 --prefix=${OPENSSL_DIR} linux-x86_64 && \
@@ -53,9 +51,7 @@ RUN git clone --depth 1 -b openssl-3.1.5+quic https://github.com/quictls/openssl
     echo "/opt/quictls/lib64" >> /etc/ld.so.conf.d/quictls.conf && \
     ldconfig
 
-# ✅ Copy OpenSSL .so files into /usr/local/lib for consistent copying
-# .so 文件找不到的关键,生成文件在 /opt/quictls/lib64/ 中拷贝
-
+# ✅ Copy .so for final image
 RUN mkdir -p /usr/local/lib && \
     if [ -d /opt/quictls/lib ]; then cp -av /opt/quictls/lib/*.so* /usr/local/lib/; fi && \
     if [ -d /opt/quictls/lib64 ]; then cp -av /opt/quictls/lib64/*.so* /usr/local/lib/; fi
@@ -72,7 +68,7 @@ RUN git clone --branch ${NGTCP2_VER} https://github.com/ngtcp2/ngtcp2.git . && \
         --enable-lib-only && \
     make -j$(nproc) && make install
 
-# ----- Build unbound -----
+# ----- Build Unbound -----
 WORKDIR /build/unbound
 
 ENV OPENSSL_CFLAGS="-I${OPENSSL_DIR}/include" \
@@ -95,21 +91,15 @@ RUN git clone https://github.com/NLnetLabs/unbound.git . && \
       --enable-dns-over-quic && \
     make -j$(nproc) && make install
 
-# ---------- Stage 2: Final image ----------
-FROM debian:bookworm-slim
+# ---------- Stage 2: Final image (Alpine) ----------
+FROM alpine:3.21
 
-# ✅ 安装运行时依赖（libevent、libsodium 等）
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libevent-2.1-7 libcap2 libexpat1 libsodium23 ca-certificates && \
-    rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache libevent libcap expat libsodium
 
-# ✅ 复制构建产物，包括 unbound 可执行文件和动态库
 COPY --from=builder /usr/local /usr/local
 
 ENV PATH=/usr/local/sbin:$PATH
 
 EXPOSE 853/udp 853/tcp 8853/udp
 
-# ✅ 使用 unbound 默认启动方式
 ENTRYPOINT ["/usr/local/sbin/unbound", "-d", "-c", "/etc/unbound/unbound.conf"]
-
