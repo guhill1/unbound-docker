@@ -92,18 +92,20 @@ RUN git clone https://github.com/NLnetLabs/unbound.git . && \
     make -j$(nproc) && make install
 
 # ---------- Stage 2: Final image ----------
-FROM debian:bullseye-slim
+FROM debian:bookworm-slim
 
-RUN apt-get update && apt-get install -y \
-    libevent-2.1-7 libcap2 libexpat1 libsodium23 \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libevent-2.1-7 \
+    libcap2 \
+    libexpat1 \
+    libsodium23 \
+ && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /usr/local /usr/local
 
-ENV PATH=/usr/local/sbin:$PATH
-ENV LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
+ENV PATH="/usr/local/sbin:$PATH"
+ENV LD_LIBRARY_PATH="/usr/local/lib:$LD_LIBRARY_PATH"
 
 EXPOSE 853/tcp 853/udp 8853/udp
 
 ENTRYPOINT ["/usr/local/sbin/unbound", "-d", "-c", "/etc/unbound/unbound.conf"]
-
