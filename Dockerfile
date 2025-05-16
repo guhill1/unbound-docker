@@ -96,15 +96,20 @@ RUN git clone https://github.com/NLnetLabs/unbound.git . && \
     make -j$(nproc) && make install
 
 # ---------- Stage 2: Final image ----------
-FROM alpine:3.21
+FROM debian:bookworm-slim
 
-RUN apk add --no-cache libevent libcap expat libsodium
+# ✅ 安装运行时依赖（libevent、libsodium 等）
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libevent-2.1-7 libcap2 libexpat1 libsodium23 ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
 
-# ✅ 复制所有编译产物，包括 unbound 和 openssl 动态库
+# ✅ 复制构建产物，包括 unbound 可执行文件和动态库
 COPY --from=builder /usr/local /usr/local
-COPY --from=builder /usr/local/lib /usr/local/lib
 
 ENV PATH=/usr/local/sbin:$PATH
 
 EXPOSE 853/udp 853/tcp 8853/udp
+
+# ✅ 使用 unbound 默认启动方式
 ENTRYPOINT ["/usr/local/sbin/unbound", "-d", "-c", "/etc/unbound/unbound.conf"]
+
